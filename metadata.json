@@ -1,0 +1,6 @@
+{
+  "name": "Tea Bag Toss",
+  "description": "A fun physics game where you flick tea bags into a mug against variable fan winds, featuring multiple game modes, unlocks, and splash effects.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
