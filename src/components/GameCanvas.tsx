@@ -8,6 +8,8 @@ interface GameCanvasProps {
   selectedTea: TeaType;
   selectedMug: MugType;
   wind: WindState;
+  level: number;
+  scrunchLevel?: number;
   isPlaying: boolean;
   onShotComplete: (result: ShotResult) => void;
   onWindChangeNeeded: () => void;
@@ -36,6 +38,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   selectedTea,
   selectedMug,
   wind,
+  level = 1,
+  scrunchLevel = 0,
   isPlaying,
   onShotComplete,
   onWindChangeNeeded,
@@ -110,10 +114,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     };
   }, [getSpawnPosition]);
 
+  const animTimeRef = useRef<number>(0);
+
   // Handle Mug Placement directly in front of the viewer on the perspective tabletop
   const setupMugPosition = useCallback((width: number, height: number) => {
-    const mugWidth = 76 * selectedMug.widthRatio;
-    const mugHeight = 92;
+    // Mug gets smaller and further away as level increases
+    const levelScale = level === 1 ? 1.0 : level === 2 ? 0.85 : level === 3 ? 0.72 : Math.max(0.55, 0.65 - (level - 4) * 0.03);
+    const tableYFactor = level === 1 ? 0.62 : level === 2 ? 0.55 : level === 3 ? 0.49 : Math.max(0.42, 0.45 - (level - 4) * 0.02);
+
+    const mugWidth = 76 * selectedMug.widthRatio * levelScale;
+    const mugHeight = 92 * levelScale;
     let targetX = width * 0.5;
 
     if (gameMode === 'precision') {
@@ -124,11 +134,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     mugTargetXRef.current = targetX;
     mugPosRef.current = {
       x: targetX,
-      y: height * 0.62,
+      y: height * tableYFactor,
       width: mugWidth,
       height: mugHeight,
     };
-  }, [selectedMug.widthRatio, gameMode]);
+  }, [selectedMug.widthRatio, gameMode, level]);
 
   // Main Render & Physics Loop
   useEffect(() => {
@@ -170,7 +180,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const height = canvas.height / (window.devicePixelRatio || 1);
 
       // 1. UPDATE PHYSICS
+      animTimeRef.current += 0.016;
       fanAngleRef.current += (wind.speed + 1) * 0.15;
+
+      const obstacles = getObstaclesForLevelAndTheme(level, theme, width, height, animTimeRef.current);
 
       // Animate Mug X towards target in precision mode
       if (Math.abs(mugPosRef.current.x - mugTargetXRef.current) > 1) {
@@ -232,22 +245,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // Flying Tea Bag Physics
       const bag = teaBagRef.current;
       if (bag.isFlying && !bag.isSettled) {
-        // Gravity
-        bag.vy += 0.38;
+        // Gravity & Wind physics modified by Tea Bag Weight and Scrunch Aerodynamics (0% to 100% Slider)
+        const gravity = selectedTea.gravity ?? 0.38;
+        const baseWindSens = selectedTea.windSensitivity ?? 1.0;
+        const scrunchRatio = Math.min(1, Math.max(0, scrunchLevel / 100));
+        // Higher scrunch = up to 75% reduced wind sensitivity for laser accuracy
+        const windSensitivity = baseWindSens * (1.0 - scrunchRatio * 0.75);
 
-        // Wind force
-        bag.vx += wind.speed * wind.direction * 0.035;
+        bag.vy += gravity;
 
-        // Air drag
-        bag.vx *= 0.992;
-        bag.vy *= 0.992;
+        // Wind force with reduced drift for scrunched bag
+        bag.vx += wind.speed * wind.direction * 0.035 * windSensitivity;
 
-        // Move main bag pouch
+        // Air drag - higher aerodynamic efficiency when scrunched into a ball
+        const airDrag = 0.992 + (scrunchRatio * 0.005);
+        bag.vx *= airDrag;
+        bag.vy *= airDrag;
+
+        // Update bag position in flight
         bag.x += bag.vx;
         bag.y += bag.vy;
 
-        // Rotation
-        bag.angle += bag.vAngle;
+        // Stable rotation for scrunched ball
+        bag.angle += bag.vAngle * (1.0 - scrunchRatio * 0.5);
 
         // String and Tag follow physics
         const dx = bag.tagX - bag.x;
@@ -259,7 +279,47 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         bag.tagX += bag.tagVx;
         bag.tagY += bag.tagVy;
 
-        // Constrain tag to string length
+        // SPAWN FLIGHT TRAIL PARTICLES
+        const effect = selectedTea.specialEffect;
+        const trailColors =
+          effect === 'leaves'
+            ? ['#fef08a', '#fde047', '#fef9c3', '#fef3c7']
+            : effect === 'glow'
+            ? ['#4ade80', '#86efac', '#22c55e', '#a7f3d0']
+            : effect === 'sparkles'
+            ? ['#fcd34d', '#fbbf24', '#ffffff', '#fef08a']
+            : effect === 'mint'
+            ? ['#a5f3fc', '#67e8f9', '#ffffff', '#cffaff']
+            : ['#f59e0b', '#fbbf24', '#ffffff', '#d97706'];
+
+        const particleType: 'leaf' | 'mint' | 'sparkle' =
+          effect === 'leaves'
+            ? 'leaf'
+            : effect === 'mint'
+            ? 'mint'
+            : 'sparkle';
+
+        // Emit 2 trail particles per frame along flight vector
+        for (let i = 0; i < 2; i++) {
+          const spawnOnTag = Math.random() < 0.35;
+          const px = (spawnOnTag ? bag.tagX : bag.x) + (Math.random() - 0.5) * 10;
+          const py = (spawnOnTag ? bag.tagY : bag.y) + (Math.random() - 0.5) * 10;
+
+          particlesRef.current.push({
+            x: px,
+            y: py,
+            vx: -bag.vx * 0.15 + (Math.random() - 0.5) * 1.0,
+            vy: -bag.vy * 0.15 + (Math.random() - 0.5) * 1.0 + (effect === 'leaves' ? 0.2 : 0),
+            size: Math.random() * 3.5 + 2.5,
+            color: trailColors[Math.floor(Math.random() * trailColors.length)],
+            alpha: 0.9,
+            life: 0,
+            maxLife: 22 + Math.floor(Math.random() * 18),
+            type: particleType,
+          });
+        }
+
+        // CONSTRAIN TAG TO STRING LENGTH
         if (dist > bag.stringLength) {
           const factor = bag.stringLength / dist;
           bag.tagX = bag.x + dx * factor;
@@ -268,19 +328,68 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           bag.tagVy *= 0.8;
         }
 
+        // COLLISION CHECKING WITH LEVEL OBSTACLES
+        for (const obs of obstacles) {
+          const odx = bag.x - obs.x;
+          const ody = bag.y - obs.y;
+          const odist = Math.hypot(odx, ody);
+
+          if (odist < obs.radius + 18) {
+            const nx = odx / (odist || 1);
+            const ny = ody / (odist || 1);
+            const dot = bag.vx * nx + bag.vy * ny;
+
+            if (dot < 0) {
+              bag.vx = (bag.vx - 2 * dot * nx) * 0.75;
+              bag.vy = (bag.vy - 2 * dot * ny) * 0.75;
+              bag.vAngle += (Math.random() - 0.5) * 0.8;
+
+              sound.playRimClink();
+
+              // Sparkle particles burst
+              for (let i = 0; i < 12; i++) {
+                const pAngle = Math.random() * Math.PI * 2;
+                const pSpeed = 2 + Math.random() * 4;
+                particlesRef.current.push({
+                  x: bag.x,
+                  y: bag.y,
+                  vx: Math.cos(pAngle) * pSpeed,
+                  vy: Math.sin(pAngle) * pSpeed,
+                  size: Math.random() * 3 + 2,
+                  color: selectedTea.particleColor || '#f59e0b',
+                  alpha: 1,
+                  life: 0,
+                  maxLife: 20,
+                  type: 'sparkle',
+                });
+              }
+
+              floatingTextsRef.current.push({
+                id: Date.now() + Math.random(),
+                text: obs.label,
+                color: '#f59e0b',
+                x: obs.x,
+                y: obs.y - 25,
+                alpha: 1,
+                scale: 1.1,
+              });
+            }
+          }
+        }
+
         // COLLISION CHECKING WITH MUG
         const mug = mugPosRef.current;
         const mugTopY = mug.y - mug.height * 0.42;
         const rimLeft = mug.x - mug.width * 0.48;
         const rimRight = mug.x + mug.width * 0.48;
-        const tableY = height * 0.72;
+        const tableY = Math.max(height * 0.84, mug.y + mug.height * 0.65);
 
-        // 1. Check if entering mug mouth
-        if (bag.y >= mugTopY && bag.y <= mugTopY + 34) {
+        // 1. Check if entering mug mouth (only when descending)
+        if (bag.y >= mugTopY && bag.y <= mugTopY + 32 && bag.vy >= 0) {
           const distFromCenter = Math.abs(bag.x - mug.x);
           const maxLandingDist = mug.width * 0.46;
 
-          if (distFromCenter <= maxLandingDist && bag.vy > -1) {
+          if (distFromCenter <= maxLandingDist) {
             // SUCCESSFUL LANDING!
             bag.isSettled = true;
             bag.vx = 0;
@@ -344,16 +453,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         }
 
-        // 2. Rim Shot bounce
-        const isNearRimY = Math.abs(bag.y - mugTopY) < 14;
-        const hitsLeftRim = Math.abs(bag.x - rimLeft) < 12 && isNearRimY;
-        const hitsRightRim = Math.abs(bag.x - rimRight) < 12 && isNearRimY;
+        // 2. Rim Shot bounce (only when descending onto rim)
+        const isNearRimY = Math.abs(bag.y - mugTopY) < 16;
+        const hitsLeftRim = Math.abs(bag.x - rimLeft) < 14 && isNearRimY;
+        const hitsRightRim = Math.abs(bag.x - rimRight) < 14 && isNearRimY;
 
-        if ((hitsLeftRim || hitsRightRim) && !bag.isSettled) {
+        if ((hitsLeftRim || hitsRightRim) && !bag.isSettled && bag.vy >= 0) {
           sound.playRimClink();
-          bag.vx *= -0.6;
-          bag.vy = -Math.abs(bag.vy) * 0.5 - 1.5;
-          bag.vAngle = (Math.random() - 0.5) * 0.4;
+          if (hitsLeftRim) {
+            bag.vx = -Math.abs(bag.vx || 3) * 0.7 - 1.2;
+          } else {
+            bag.vx = Math.abs(bag.vx || 3) * 0.7 + 1.2;
+          }
+          bag.vy = -Math.abs(bag.vy) * 0.5 - 2.2;
+          bag.y = mugTopY - 18; // Bounce clear off the rim!
+          bag.vAngle = (Math.random() - 0.5) * 0.5;
 
           floatingTextsRef.current.push({
             id: Date.now(),
@@ -366,9 +480,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           });
         }
 
-        // 3. Table / Missed ground bounce (Only trigger if falling downwards vy > 0 or offscreen)
-        if ((bag.vy > 0 && bag.y >= tableY) || bag.x < -50 || bag.x > width + 50) {
+        // 3. Table / Missed ground bounce
+        if ((bag.vy > 0 && bag.y >= tableY) || bag.x < -50 || bag.x > width + 50 || bag.y > height + 60) {
           bag.isSettled = true;
+          bag.y = Math.min(bag.y, tableY);
           sound.playTableThud();
 
           onShotComplete({
@@ -407,16 +522,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.clearRect(0, 0, width, height);
 
       // Render Environment Background
-      drawEnvironmentBackground(ctx, width, height, theme);
+      drawEnvironmentBackground(ctx, width, height, theme, animTimeRef.current);
 
       // Draw Wind FX & Fan
       drawFanAndWind(ctx, width, height, wind, fanAngleRef.current);
 
-      // Draw Table Surface
-      drawTable(ctx, width, height, theme);
+      // Draw Table Surface with Level Perspective
+      drawTable(ctx, width, height, theme, level);
 
-      // Draw Mug
+      // Draw Mug (rendered behind obstacles)
       drawMug(ctx, mugPosRef.current, selectedMug, selectedTea, landedTeaBagsCountRef.current);
+
+      // Draw Environment Obstacles (rendered in front of mug)
+      drawObstacles(ctx, obstacles);
 
       // Draw Steam
       steamParticlesRef.current.forEach((p) => {
@@ -429,20 +547,53 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.restore();
       });
 
-      // Draw Wind/Splash particles
+      // Draw Wind/Splash/Trail particles
       particlesRef.current.forEach((p) => {
         ctx.save();
-        ctx.globalAlpha = p.alpha;
+        ctx.globalAlpha = Math.max(0, p.alpha);
         ctx.fillStyle = p.color;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fill();
+
+        if (p.type === 'leaf') {
+          // Delicate fluttering tea leaf / petal
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.life * 0.12);
+          ctx.beginPath();
+          ctx.ellipse(0, 0, p.size, p.size * 2.2, 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (p.type === 'mint') {
+          // Ice mint diamond crystal
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.life * 0.1);
+          ctx.beginPath();
+          ctx.moveTo(0, -p.size * 1.5);
+          ctx.lineTo(p.size * 1.1, 0);
+          ctx.lineTo(0, p.size * 1.5);
+          ctx.lineTo(-p.size * 1.1, 0);
+          ctx.closePath();
+          ctx.fill();
+        } else if (p.type === 'sparkle') {
+          // Glowing starburst / sparkling dust
+          ctx.translate(p.x, p.y);
+          ctx.beginPath();
+          ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(0, 0, p.size * 0.45, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Standard circle particle
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
         ctx.restore();
       });
 
-      // Draw Aim Trajectory Guide if flicking / dragging
+      // Draw Aim Flick Vector Guide if flicking / dragging
       if (isDraggingRef.current && dragStartRef.current && dragCurrentRef.current) {
-        drawTrajectoryGuide(ctx, dragStartRef.current, dragCurrentRef.current, wind, teaBagRef.current, touchHistoryRef.current);
+        drawFlickVectorGuide(ctx, dragStartRef.current, dragCurrentRef.current, wind, teaBagRef.current, touchHistoryRef.current, selectedTea, scrunchLevel);
       }
 
       // Draw Flick Hint text badge when ready to throw
@@ -451,7 +602,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
 
       // Draw Tea Bag
-      drawTeaBag(ctx, teaBagRef.current, selectedTea);
+      drawTeaBag(ctx, teaBagRef.current, selectedTea, scrunchLevel);
 
       // Draw Floating Feedback Texts
       floatingTextsRef.current.forEach((ft) => {
@@ -482,6 +633,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     wind,
     gameMode,
     streak,
+    scrunchLevel,
     isPlaying,
     onShotComplete,
     onWindChangeNeeded,
@@ -491,7 +643,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
   // Handle Drag / Flick Start
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isPlaying || teaBagRef.current.isFlying) return;
+    if (!isPlaying || teaBagRef.current.isFlying || teaBagRef.current.isSettled) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -506,15 +658,24 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const y = e.clientY - rect.top;
 
     const bag = teaBagRef.current;
-    const dist = Math.hypot(x - bag.x, y - bag.y);
+    const width = rect.width;
+    const height = rect.height;
+    const spawn = getSpawnPosition(width, height);
 
-    // Allow flicking anywhere near the tea bag or lower screen launch zone
-    if (dist < 220 || y > rect.height * 0.35) {
+    // Allow flicking anywhere near lower screen launch area or near bag
+    if (y > height * 0.35 || Math.hypot(x - bag.x, y - bag.y) < 220) {
       isDraggingRef.current = true;
       dragStartRef.current = { x, y };
       dragCurrentRef.current = { x, y };
       const now = performance.now();
       touchHistoryRef.current = [{ x, y, time: now }];
+
+      bag.x = spawn.x;
+      bag.y = spawn.y;
+      bag.vx = 0;
+      bag.vy = 0;
+      bag.tagX = spawn.x - 10;
+      bag.tagY = spawn.y - 35;
     }
   };
 
@@ -526,24 +687,46 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+
     dragCurrentRef.current = { x, y };
+
+    const bag = teaBagRef.current;
+    const width = rect.width;
+    const height = rect.height;
+    const spawn = getSpawnPosition(width, height);
+
+    if (dragStartRef.current) {
+      const dragDx = x - dragStartRef.current.x;
+      const dragDy = y - dragStartRef.current.y;
+
+      // Tether bag smoothly around launch pad during drag gesture
+      if (dragDy > 0) {
+        // Pulling down (slingshot aim)
+        bag.x = spawn.x + Math.max(-70, Math.min(70, dragDx * 0.35));
+        bag.y = spawn.y + Math.min(45, dragDy * 0.35);
+      } else {
+        // Swiping up (flick aim)
+        bag.x = spawn.x + Math.max(-70, Math.min(70, dragDx * 0.25));
+        bag.y = spawn.y + Math.max(-25, dragDy * 0.15);
+      }
+
+      bag.tagX = bag.x - 10;
+      bag.tagY = bag.y - 32;
+    }
 
     const now = performance.now();
     const history = touchHistoryRef.current;
     history.push({ x, y, time: now });
 
-    // Prune history older than 180ms
-    while (history.length > 0 && now - history[0].time > 180) {
+    // Prune history older than 120ms
+    while (history.length > 0 && now - history[0].time > 120) {
       history.shift();
     }
   };
 
   // Handle Flick Launch (Release)
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDraggingRef.current || !dragStartRef.current || !dragCurrentRef.current) {
-      isDraggingRef.current = false;
-      return;
-    }
+    if (!isDraggingRef.current) return;
 
     const canvas = canvasRef.current;
     if (canvas && e.pointerId !== undefined) {
@@ -554,74 +737,61 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       } catch (err) {}
     }
 
-    const dragStart = dragStartRef.current;
-    const dragCurrent = dragCurrentRef.current;
-
     isDraggingRef.current = false;
 
+    const rect = canvas ? canvas.getBoundingClientRect() : { width: 600, height: 400 };
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
     const history = touchHistoryRef.current;
-    const totalDx = dragCurrent.x - dragStart.x;
-    const totalDy = dragCurrent.y - dragStart.y;
-    const totalDist = Math.hypot(totalDx, totalDy);
+    const now = performance.now();
+    history.push({ x, y, time: now });
 
-    let vx = 0;
-    let vy = 0;
+    const bag = teaBagRef.current;
+    const width = canvas ? canvas.width / (window.devicePixelRatio || 1) : rect.width;
+    const height = canvas ? canvas.height / (window.devicePixelRatio || 1) : rect.height;
+    const spawn = getSpawnPosition(width, height);
 
-    // Calculate velocity from touch history
-    if (history.length >= 2) {
-      const recent = history[history.length - 1];
-      let startPoint = history[0];
-      for (let i = history.length - 2; i >= 0; i--) {
-        if (recent.time - history[i].time >= 25) {
-          startPoint = history[i];
-          break;
-        }
-      }
-
-      const dt = Math.max(recent.time - startPoint.time, 10);
-      const dx = recent.x - startPoint.x;
-      const dy = recent.y - startPoint.y;
-
-      const scale = 6.5;
-      vx = (dx / dt) * scale;
-      vy = (dy / dt) * scale;
-    }
-
-    // Slingshot / Drag fallbacks
-    if (totalDy > 15 && Math.hypot(vx, vy) < 3.5) {
-      vx = -totalDx * 0.16;
-      vy = -totalDy * 0.18;
-    } else if (Math.hypot(vx, vy) < 1.8 && totalDist > 8) {
-      vx = totalDx * 0.16;
-      vy = totalDy * 0.16;
-    }
-
-    if (totalDy < -8 && vy > -3) {
-      vy = -Math.max(Math.abs(vy), Math.abs(totalDy) * 0.18);
-    }
-
-    const currentSpeed = Math.hypot(vx, vy);
-
-    if (currentSpeed > 0.8 || totalDist > 8) {
-      const maxSpeed = 28;
-      if (currentSpeed > maxSpeed) {
-        vx = (vx / currentSpeed) * maxSpeed;
-        vy = (vy / currentSpeed) * maxSpeed;
-      }
-
-      // Launch Tea Bag!
-      const bag = teaBagRef.current;
-      bag.vx = vx;
-      bag.vy = vy;
-      bag.vAngle = (Math.random() - 0.5) * 0.3 + vx * 0.02;
-      bag.isFlying = true;
-
-      sound.playFlick(Math.min(currentSpeed / 18, 1.0));
-    }
+    const dragStart = dragStartRef.current;
+    const dragCurrent = dragCurrentRef.current;
 
     dragStartRef.current = null;
     dragCurrentRef.current = null;
     touchHistoryRef.current = [];
+
+    // Calculate unified flick velocity from drag displacement & touch history
+    const { vx: rawVx, vy: rawVy, speed: flickSpeed } = computeFlickVector(dragStart, dragCurrent, history, now);
+
+    let vx = rawVx;
+    let vy = rawVy;
+
+    const scrunchRatio = Math.min(1, Math.max(0, scrunchLevel / 100));
+    const maxSpeed = 34 + scrunchRatio * 8;
+
+    if (vy < -0.8 && flickSpeed > 1.2) {
+      if (flickSpeed > maxSpeed) {
+        vx = (vx / flickSpeed) * maxSpeed;
+        vy = (vy / flickSpeed) * maxSpeed;
+      }
+
+      // Launch cleanly from spawn launchpad through the air!
+      bag.x = spawn.x;
+      bag.y = spawn.y;
+      bag.vx = vx;
+      bag.vy = vy;
+      bag.vAngle = (Math.random() - 0.5) * 0.3 + vx * 0.025;
+      bag.isFlying = true;
+
+      sound.playFlick(Math.min(flickSpeed / 18, 1.0));
+    } else {
+      // Weak release -> reset to launchpad
+      bag.x = spawn.x;
+      bag.y = spawn.y;
+      bag.vx = 0;
+      bag.vy = 0;
+      bag.tagX = spawn.x - 10;
+      bag.tagY = spawn.y - 35;
+    }
   };
 
   return (
@@ -644,51 +814,570 @@ function drawEnvironmentBackground(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
-  theme: EnvironmentTheme
+  theme: EnvironmentTheme,
+  time: number = 0
 ) {
-  let grad = ctx.createLinearGradient(0, 0, 0, height);
-
-  switch (theme) {
-    case 'kitchen':
-      grad.addColorStop(0, '#fef3c7'); // Warm honey cream
-      grad.addColorStop(0.7, '#fde68a');
-      grad.addColorStop(1, '#f59e0b');
-      break;
-    case 'office':
-      grad.addColorStop(0, '#f1f5f9'); // Modern slate
-      grad.addColorStop(0.7, '#e2e8f0');
-      grad.addColorStop(1, '#cbd5e1');
-      break;
-    case 'teahouse':
-      grad.addColorStop(0, '#ecfdf5'); // Mint matcha green teahouse
-      grad.addColorStop(0.7, '#d1fae5');
-      grad.addColorStop(1, '#a7f3d0');
-      break;
-    case 'porch':
-      grad.addColorStop(0, '#bae6fd'); // Porch blue sky
-      grad.addColorStop(0.7, '#e0f2fe');
-      grad.addColorStop(1, '#fef08a');
-      break;
-  }
-
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, width, height);
-
-  // Subtle wall wallpaper pattern or window
   ctx.save();
-  ctx.strokeStyle = 'rgba(0,0,0,0.03)';
-  ctx.lineWidth = 1;
-  for (let x = 0; x < width; x += 40) {
+
+  if (theme === 'kitchen') {
+    // 1. KITCHEN THEME
+    // Base warm background gradient
+    const wallGrad = ctx.createLinearGradient(0, 0, 0, height);
+    wallGrad.addColorStop(0, '#fef3c7'); // Honey cream wall
+    wallGrad.addColorStop(0.5, '#fde68a');
+    wallGrad.addColorStop(1, '#f59e0b');
+    ctx.fillStyle = wallGrad;
+    ctx.fillRect(0, 0, width, height);
+
+    // Subway Tile Backsplash on Wall
+    const tileW = 36;
+    const tileH = 18;
+    ctx.strokeStyle = 'rgba(217, 119, 6, 0.22)';
+    ctx.lineWidth = 1;
+    for (let y = 0; y < height * 0.55; y += tileH) {
+      const offsetX = (Math.floor(y / tileH) % 2) * (tileW / 2);
+      for (let x = -tileW; x < width + tileW; x += tileW) {
+        ctx.strokeRect(x + offsetX, y, tileW, tileH);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.fillRect(x + offsetX + 1, y + 1, tileW - 2, 2);
+      }
+    }
+
+    // Cozy Kitchen Window (Center-top)
+    const winX = width * 0.22;
+    const winY = 20;
+    const winW = width * 0.56;
+    const winH = height * 0.38;
+
+    // Outdoor View Inside Window Frame
+    ctx.save();
     ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height * 0.75);
+    ctx.rect(winX, winY, winW, winH);
+    ctx.clip();
+
+    // Sky
+    const skyGrad = ctx.createLinearGradient(0, winY, 0, winY + winH);
+    skyGrad.addColorStop(0, '#38bdf8');
+    skyGrad.addColorStop(1, '#bae6fd');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(winX, winY, winW, winH);
+
+    // Sun & Rays
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.arc(winX + winW * 0.8, winY + winH * 0.25, 24, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Drifting Outdoor Clouds
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    const cloud1X = winX + ((time * 12) % (winW + 100)) - 50;
+    ctx.beginPath();
+    ctx.arc(cloud1X, winY + 30, 16, 0, Math.PI * 2);
+    ctx.arc(cloud1X + 18, winY + 24, 20, 0, Math.PI * 2);
+    ctx.arc(cloud1X + 36, winY + 30, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Rolling Green Hills
+    ctx.fillStyle = '#16a34a';
+    ctx.beginPath();
+    ctx.ellipse(winX + winW * 0.3, winY + winH + 10, winW * 0.45, winH * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#22c55e';
+    ctx.beginPath();
+    ctx.ellipse(winX + winW * 0.75, winY + winH + 10, winW * 0.5, winH * 0.45, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore(); // end clip
+
+    // Wooden Window Frame
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 8;
+    ctx.strokeRect(winX, winY, winW, winH);
+
+    // Window Mullions (Crossbars)
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(winX + winW * 0.5, winY);
+    ctx.lineTo(winX + winW * 0.5, winY + winH);
+    ctx.moveTo(winX, winY + winH * 0.5);
+    ctx.lineTo(winX + winW, winY + winH * 0.5);
     ctx.stroke();
+
+    // Window Sill
+    ctx.fillStyle = '#92400e';
+    ctx.fillRect(winX - 12, winY + winH - 2, winW + 24, 10);
+
+    // Red Gingham Curtains on Sides
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.85)';
+    ctx.beginPath();
+    ctx.ellipse(winX + 10, winY + winH * 0.5, 18, winH * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(winX + winW - 10, winY + winH * 0.5, 18, winH * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Floating Wooden Wall Shelf (Right Side)
+    const shelfX = width * 0.78;
+    const shelfY = height * 0.28;
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(shelfX, shelfY, width * 0.2, 8);
+    // Shelf Spice Jars
+    ctx.fillStyle = '#eab308';
+    ctx.fillRect(shelfX + 8, shelfY - 20, 14, 20);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(shelfX + 26, shelfY - 16, 12, 16);
+
+    // Wall Clock (Left Side)
+    const clockX = width * 0.12;
+    const clockY = height * 0.22;
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#451a03';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(clockX, clockY, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Clock tick hand
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(clockX, clockY);
+    ctx.lineTo(clockX + Math.cos(time * 2) * 14, clockY + Math.sin(time * 2) * 14);
+    ctx.stroke();
+
+  } else if (theme === 'office') {
+    // 2. OFFICE THEME
+    // Executive Slate Wall Gradient
+    const wallGrad = ctx.createLinearGradient(0, 0, 0, height);
+    wallGrad.addColorStop(0, '#334155');
+    wallGrad.addColorStop(0.6, '#1e293b');
+    wallGrad.addColorStop(1, '#0f172a');
+    ctx.fillStyle = wallGrad;
+    ctx.fillRect(0, 0, width, height);
+
+    // Floor-to-Ceiling Panoramic Glass Window
+    const winX = width * 0.15;
+    const winY = 10;
+    const winW = width * 0.70;
+    const winH = height * 0.52;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(winX, winY, winW, winH);
+    ctx.clip();
+
+    // City Sky
+    const skyGrad = ctx.createLinearGradient(0, winY, 0, winY + winH);
+    skyGrad.addColorStop(0, '#0284c7');
+    skyGrad.addColorStop(0.6, '#38bdf8');
+    skyGrad.addColorStop(1, '#fdba74');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(winX, winY, winW, winH);
+
+    // Distant City Skyline Silhouettes
+    ctx.fillStyle = '#1e293b';
+    const bldgWidths = [30, 45, 25, 50, 35, 60, 40, 30];
+    let bx = winX;
+    for (let i = 0; i < bldgWidths.length; i++) {
+      const bw = bldgWidths[i];
+      const bh = 50 + (i % 3) * 35;
+      ctx.fillRect(bx, winY + winH - bh, bw, bh);
+
+      // Building windows glowing
+      ctx.fillStyle = '#fef08a';
+      for (let wy = winY + winH - bh + 6; wy < winY + winH - 6; wy += 10) {
+        for (let wx = bx + 4; wx < bx + bw - 4; wx += 8) {
+          if ((wx + wy) % 3 !== 0) {
+            ctx.fillRect(wx, wy, 4, 5);
+          }
+        }
+      }
+      ctx.fillStyle = '#1e293b';
+      bx += bw + 4;
+    }
+
+    ctx.restore(); // end clip
+
+    // Modern Dark Aluminum Window Frame
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(winX, winY, winW, winH);
+
+    // Venetian Blinds at Top
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.4)';
+    for (let bY = winY; bY < winY + winH * 0.45; bY += 8) {
+      ctx.fillRect(winX, bY, winW, 3);
+    }
+
+    // Framed Certificate on Left Wall
+    const certX = width * 0.03;
+    const certY = height * 0.18;
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 3;
+    ctx.fillRect(certX, certY, 42, 54);
+    ctx.strokeRect(certX, certY, 42, 54);
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath();
+    ctx.arc(certX + 21, certY + 38, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Whiteboard / Memo Pin Board on Right Wall
+    const boardX = width * 0.88;
+    const boardY = height * 0.18;
+    ctx.fillStyle = '#f8fafc';
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 3;
+    ctx.fillRect(boardX, boardY, 60, 70);
+    ctx.strokeRect(boardX, boardY, 60, 70);
+    // Sticky Notes
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(boardX + 6, boardY + 10, 18, 18);
+    ctx.fillStyle = '#a7f3d0';
+    ctx.fillRect(boardX + 30, boardY + 16, 20, 20);
+
+  } else if (theme === 'teahouse') {
+    // 3. TEAHOUSE THEME
+    // Warm Tatami / Cedar Wood Background
+    const wallGrad = ctx.createLinearGradient(0, 0, 0, height);
+    wallGrad.addColorStop(0, '#064e3b');
+    wallGrad.addColorStop(0.7, '#047857');
+    wallGrad.addColorStop(1, '#022c22');
+    ctx.fillStyle = wallGrad;
+    ctx.fillRect(0, 0, width, height);
+
+    // Shoji Paper Lattice Screen Grid on Walls
+    ctx.strokeStyle = 'rgba(6, 78, 59, 0.4)';
+    ctx.lineWidth = 2;
+    for (let x = 0; x < width; x += 50) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height * 0.55);
+      ctx.stroke();
+    }
+    for (let y = 0; y < height * 0.55; y += 40) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+
+    // Circular "Enso" Satori Window in Center Background
+    const circleX = width * 0.5;
+    const circleY = height * 0.28;
+    const circleR = Math.min(width * 0.24, height * 0.24);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(circleX, circleY, circleR, 0, Math.PI * 2);
+    ctx.clip();
+
+    // View through Zen Window: Mist & Bamboo Forest
+    const gardenGrad = ctx.createLinearGradient(0, circleY - circleR, 0, circleY + circleR);
+    gardenGrad.addColorStop(0, '#d1fae5');
+    gardenGrad.addColorStop(1, '#a7f3d0');
+    ctx.fillStyle = gardenGrad;
+    ctx.fillRect(circleX - circleR, circleY - circleR, circleR * 2, circleR * 2);
+
+    // Bamboo Stalks
+    ctx.fillStyle = '#059669';
+    for (let bx = circleX - circleR + 20; bx < circleX + circleR; bx += 32) {
+      ctx.fillRect(bx, circleY - circleR, 10, circleR * 2);
+      ctx.fillStyle = '#047857';
+      ctx.fillRect(bx - 2, circleY - 20, 14, 3);
+      ctx.fillRect(bx - 2, circleY + 20, 14, 3);
+      ctx.fillStyle = '#059669';
+    }
+
+    // Floating Falling Cherry Blossom Petals
+    ctx.fillStyle = '#f472b6';
+    for (let p = 0; p < 8; p++) {
+      const px = circleX - circleR + ((time * 20 + p * 40) % (circleR * 2));
+      const py = circleY - circleR + ((time * 15 + p * 30) % (circleR * 2));
+      ctx.beginPath();
+      ctx.ellipse(px, py, 4, 2, Math.sin(time + p), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore(); // end clip
+
+    // Circular Dark Lacquered Wood Window Border
+    ctx.strokeStyle = '#1c1917';
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(circleX, circleY, circleR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Cross Lattice in Zen Window
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(circleX - circleR, circleY);
+    ctx.lineTo(circleX + circleR, circleY);
+    ctx.moveTo(circleX, circleY - circleR);
+    ctx.lineTo(circleX, circleY + circleR);
+    ctx.stroke();
+
+    // Hanging Calligraphy Scroll on Left
+    const scrollX = width * 0.1;
+    const scrollY = 20;
+    ctx.fillStyle = '#fef3c7';
+    ctx.fillRect(scrollX, scrollY, 36, 110);
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(scrollX, scrollY, 36, 110);
+    ctx.fillStyle = '#1c1917';
+    ctx.beginPath();
+    ctx.arc(scrollX + 18, scrollY + 40, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Swaying Red Paper Lantern on Right
+    const lanX = width * 0.88 + Math.sin(time * 1.5) * 6;
+    const lanY = 20;
+    ctx.strokeStyle = '#1c1917';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(lanX, 0);
+    ctx.lineTo(lanX, lanY);
+    ctx.stroke();
+
+    ctx.fillStyle = '#dc2626';
+    ctx.beginPath();
+    ctx.ellipse(lanX, lanY + 25, 18, 24, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.arc(lanX, lanY + 25, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+  } else if (theme === 'porch') {
+    // 4. PORCH THEME
+    // Scenic Golden Sunset Sky
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
+    skyGrad.addColorStop(0, '#0284c7');
+    skyGrad.addColorStop(0.35, '#38bdf8');
+    skyGrad.addColorStop(0.65, '#f97316');
+    skyGrad.addColorStop(1, '#fef08a');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, width, height);
+
+    // Glowing Setting Sun
+    const sunX = width * 0.72;
+    const sunY = height * 0.38;
+    const sunGrad = ctx.createRadialGradient(sunX, sunY, 5, sunX, sunY, 40);
+    sunGrad.addColorStop(0, '#ffffff');
+    sunGrad.addColorStop(0.3, '#fef08a');
+    sunGrad.addColorStop(1, 'rgba(251, 146, 60, 0)');
+    ctx.fillStyle = sunGrad;
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 40, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Distant Mountain Ranges
+    ctx.fillStyle = '#3b0764';
+    ctx.beginPath();
+    ctx.moveTo(0, height * 0.48);
+    ctx.lineTo(width * 0.25, height * 0.35);
+    ctx.lineTo(width * 0.5, height * 0.48);
+    ctx.lineTo(width * 0.75, height * 0.32);
+    ctx.lineTo(width, height * 0.46);
+    ctx.lineTo(width, height * 0.55);
+    ctx.lineTo(0, height * 0.55);
+    ctx.closePath();
+    ctx.fill();
+
+    // Closer Forest Silhouettes
+    ctx.fillStyle = '#1e1b4b';
+    for (let x = 0; x < width; x += 18) {
+      const treeH = 20 + Math.sin(x * 0.05) * 12;
+      ctx.beginPath();
+      ctx.moveTo(x, height * 0.52);
+      ctx.lineTo(x + 9, height * 0.52 - treeH);
+      ctx.lineTo(x + 18, height * 0.52);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Porch Overhead Beam & Hanging String Lights
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(0, 0, width, 16);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, 10);
+    ctx.quadraticCurveTo(width * 0.5, 38, width, 10);
+    ctx.stroke();
+
+    // Glowing Fairy Light Bulbs
+    for (let i = 1; i < 9; i++) {
+      const lx = (width / 9) * i;
+      const ly = 10 + Math.sin((i / 9) * Math.PI) * 28;
+
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(lx, ly, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(254, 240, 138, 0.25)';
+      ctx.beginPath();
+      ctx.arc(lx, ly, 10, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Hanging Macramé Planter with Cascading Ivy Vines
+    const plantX = width * 0.12;
+    const potY = 55;
+
+    // 1. Wrought Iron Mount Hook at Ceiling
+    ctx.strokeStyle = '#1c1917';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(plantX - 12, 0);
+    ctx.lineTo(plantX, 12);
+    ctx.lineTo(plantX + 12, 0);
+    ctx.stroke();
+
+    // Metallic ring
+    ctx.strokeStyle = '#d97706';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(plantX, 14, 4, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 2. Macramé Cords
+    ctx.strokeStyle = '#e7e5e4';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(plantX, 18);
+    ctx.lineTo(plantX - 16, potY);
+    ctx.moveTo(plantX, 18);
+    ctx.lineTo(plantX, potY + 4);
+    ctx.moveTo(plantX, 18);
+    ctx.lineTo(plantX + 16, potY);
+    ctx.stroke();
+
+    // 3. Ceramic Planter Bowl
+    ctx.fillStyle = '#f5f5f4';
+    ctx.strokeStyle = '#d6d3d1';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(plantX - 18, potY);
+    ctx.lineTo(plantX + 18, potY);
+    ctx.quadraticCurveTo(plantX + 15, potY + 24, plantX, potY + 24);
+    ctx.quadraticCurveTo(plantX - 15, potY + 24, plantX - 18, potY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Pot Rim
+    ctx.fillStyle = '#e7e5e4';
+    ctx.fillRect(plantX - 19, potY - 2, 38, 4);
+
+    // Macramé Tassel Hanging Below Pot
+    ctx.strokeStyle = '#e7e5e4';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(plantX, potY + 24);
+    ctx.lineTo(plantX, potY + 38);
+    ctx.stroke();
+    ctx.fillStyle = '#f5f5f4';
+    ctx.beginPath();
+    ctx.arc(plantX, potY + 38, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 4. Lush Foliage Inside Pot
+    ctx.fillStyle = '#15803d';
+    ctx.beginPath();
+    ctx.arc(plantX - 8, potY - 4, 12, 0, Math.PI * 2);
+    ctx.arc(plantX + 8, potY - 4, 12, 0, Math.PI * 2);
+    ctx.arc(plantX, potY - 8, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#22c55e';
+    ctx.beginPath();
+    ctx.arc(plantX - 10, potY - 2, 9, 0, Math.PI * 2);
+    ctx.arc(plantX + 10, potY - 2, 9, 0, Math.PI * 2);
+    ctx.arc(plantX, potY - 4, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 5. Cascading Trailing Ivy Vines & Heart-shaped Leaves
+    const vinePaths = [
+      { startX: plantX - 14, cpX: plantX - 26, endX: plantX - 18, endY: potY + 50 },
+      { startX: plantX - 4, cpX: plantX - 10, endX: plantX - 6, endY: potY + 68 },
+      { startX: plantX + 6, cpX: plantX + 12, endX: plantX + 8, endY: potY + 58 },
+      { startX: plantX + 14, cpX: plantX + 24, endX: plantX + 18, endY: potY + 44 },
+    ];
+
+    ctx.strokeStyle = '#16a34a';
+    ctx.lineWidth = 1.8;
+    ctx.lineCap = 'round';
+
+    vinePaths.forEach((v) => {
+      ctx.beginPath();
+      ctx.moveTo(v.startX, potY + 6);
+      ctx.quadraticCurveTo(v.cpX, potY + 28, v.endX, v.endY);
+      ctx.stroke();
+    });
+
+    // Leaves along the vines
+    const leafPositions = [
+      { x: plantX - 16, y: potY + 16, size: 5, rot: -0.4, color: '#4ade80' },
+      { x: plantX - 22, y: potY + 30, size: 4.5, rot: -0.8, color: '#22c55e' },
+      { x: plantX - 18, y: potY + 46, size: 3.5, rot: -0.5, color: '#86efac' },
+
+      { x: plantX - 6, y: potY + 22, size: 5.5, rot: 0.3, color: '#22c55e' },
+      { x: plantX - 10, y: potY + 40, size: 5, rot: -0.3, color: '#4ade80' },
+      { x: plantX - 6, y: potY + 62, size: 3.5, rot: 0.1, color: '#86efac' },
+
+      { x: plantX + 8, y: potY + 20, size: 5, rot: 0.4, color: '#4ade80' },
+      { x: plantX + 12, y: potY + 38, size: 4.5, rot: 0.7, color: '#22c55e' },
+      { x: plantX + 8, y: potY + 54, size: 3.5, rot: 0.3, color: '#86efac' },
+
+      { x: plantX + 18, y: potY + 18, size: 4.5, rot: 0.6, color: '#22c55e' },
+      { x: plantX + 22, y: potY + 32, size: 4, rot: 0.9, color: '#4ade80' },
+    ];
+
+    leafPositions.forEach((leaf) => {
+      ctx.save();
+      ctx.translate(leaf.x, leaf.y);
+      ctx.rotate(leaf.rot);
+      ctx.fillStyle = leaf.color;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, leaf.size, leaf.size * 1.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    });
+
+    // Little Fuchsia Blossoms
+    const blossoms = [
+      { x: plantX - 12, y: potY + 12 },
+      { x: plantX + 4, y: potY + 16 },
+      { x: plantX - 8, y: potY + 32 },
+      { x: plantX + 10, y: potY + 28 },
+    ];
+
+    blossoms.forEach((b) => {
+      ctx.fillStyle = '#f472b6';
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, 1, 0, Math.PI * 2);
+      ctx.fill();
+    });
   }
+
   ctx.restore();
 }
 
-function drawTable(ctx: CanvasRenderingContext2D, width: number, height: number, theme: EnvironmentTheme) {
-  const horizonY = height * 0.54;
+function drawTable(ctx: CanvasRenderingContext2D, width: number, height: number, theme: EnvironmentTheme, level: number = 1) {
+  const horizonY = height * (level === 1 ? 0.54 : level === 2 ? 0.50 : level === 3 ? 0.46 : 0.42);
 
   let topColor = '#b45309';
   let sideColor = '#78350f';
@@ -736,7 +1425,6 @@ function drawTable(ctx: CanvasRenderingContext2D, width: number, height: number,
 
   // Perspective Plank Lines converging to central vanishing point
   const vpX = width * 0.5;
-  const vpY = horizonY - 60;
 
   ctx.strokeStyle = plankColor;
   ctx.lineWidth = 2;
@@ -761,7 +1449,509 @@ function drawTable(ctx: CanvasRenderingContext2D, width: number, height: number,
     ctx.stroke();
   }
 
+  // Coaster / Table Mat Place Under Center Mug Area
+  const matY = horizonY + (height - horizonY) * 0.3;
+  ctx.fillStyle = theme === 'teahouse' ? 'rgba(4, 120, 87, 0.4)' : theme === 'office' ? 'rgba(30, 41, 59, 0.5)' : 'rgba(254, 240, 138, 0.25)';
+  ctx.beginPath();
+  ctx.ellipse(vpX, matY, width * 0.22, 22, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
   ctx.restore();
+}
+
+// --- DYNAMIC LEVEL OBSTACLE HELPER FUNCTIONS ---
+
+export interface CanvasObstacle {
+  id: string;
+  type: string;
+  x: number;
+  y: number;
+  radius: number;
+  label: string;
+  rotation?: number;
+  extraData?: any;
+}
+
+function getObstaclesForLevelAndTheme(
+  level: number,
+  theme: EnvironmentTheme,
+  width: number,
+  height: number,
+  time: number
+): CanvasObstacle[] {
+  if (level < 2) return [];
+
+  const obstacles: CanvasObstacle[] = [];
+  const tableYFactor = level === 1 ? 0.62 : level === 2 ? 0.55 : level === 3 ? 0.49 : Math.max(0.42, 0.45 - (level - 4) * 0.02);
+  const mugY = height * tableYFactor;
+
+  if (theme === 'kitchen') {
+    // Level 2+: Playful Cat Paw swiping in front of mug
+    if (level >= 2) {
+      const pawSpeed = 0.75 + (level - 2) * 0.35;
+      const pawOffset = Math.sin(time * 1.3 * pawSpeed) * (20 + (level - 2) * 12);
+      obstacles.push({
+        id: 'cat_paw',
+        type: 'cat_paw',
+        x: width * 0.62 + pawOffset * 0.3,
+        y: mugY + 30 + pawOffset * 0.4,
+        radius: 26 + (level - 2) * 3,
+        label: '🐱 CAT PAW DEFLECTION!',
+        rotation: Math.sin(time * 1.3 * pawSpeed) * 0.18,
+      });
+    }
+    // Level 3+: Popping Toaster sitting in foreground
+    if (level >= 3) {
+      const toastSpeed = 0.8 + (level - 3) * 0.35;
+      const toastPop = Math.max(0, Math.sin(time * 1.3 * toastSpeed)) * (28 + (level - 3) * 12);
+      obstacles.push({
+        id: 'toaster',
+        type: 'toaster',
+        x: width * 0.35,
+        y: mugY + 18 - toastPop * 0.4,
+        radius: 24 + (level - 3) * 3,
+        label: '🍞 TOAST BOUNCE!',
+        extraData: { toastPop },
+      });
+    }
+    // Level 4+: Ceiling Fan
+    if (level >= 4) {
+      obstacles.push({
+        id: 'fan',
+        type: 'fan',
+        x: width * 0.5,
+        y: height * 0.26,
+        radius: 38 + (level - 4) * 4,
+        label: '🌀 FAN WIND DEFLECTION!',
+        rotation: time * (5 + (level - 4) * 2),
+      });
+    }
+  } else if (theme === 'office') {
+    // Level 2+: Floating Paper Airplane flying across foreground in front of mug
+    if (level >= 2) {
+      const planeSpeed = 0.75 + (level - 2) * 0.35;
+      const planeX = width * 0.5 + Math.sin(time * 0.9 * planeSpeed) * (width * (0.12 + (level - 2) * 0.04));
+      const planeY = mugY - 20 + Math.cos(time * 1.4 * planeSpeed) * (10 + (level - 2) * 6);
+      obstacles.push({
+        id: 'paper_plane',
+        type: 'paper_plane',
+        x: planeX,
+        y: planeY,
+        radius: 22 + (level - 2) * 3,
+        label: '✈️ PAPER AIRPLANE BOUNCE!',
+        rotation: Math.cos(time * 0.9 * planeSpeed) * 0.25,
+      });
+    }
+    // Level 3+: Rolling Office Chair rolling back and forth in front of mug
+    if (level >= 3) {
+      const chairSpeed = 0.8 + (level - 3) * 0.35;
+      const chairX = width * 0.5 + Math.cos(time * 0.7 * chairSpeed) * (width * (0.12 + (level - 3) * 0.04));
+      obstacles.push({
+        id: 'rolling_chair',
+        type: 'rolling_chair',
+        x: chairX,
+        y: mugY + 30,
+        radius: 30 + (level - 3) * 4,
+        label: '🪑 OFFICE CHAIR REBOUND!',
+      });
+    }
+  } else if (theme === 'teahouse') {
+    // Level 2+: Swaying Paper Lantern hanging in front of mug
+    if (level >= 2) {
+      const lanternSpeed = 0.7 + (level - 2) * 0.35;
+      const lanternX = width * 0.5 + Math.sin(time * 0.9 * lanternSpeed) * (20 + (level - 2) * 12);
+      const lanternY = mugY - 24 + Math.abs(Math.cos(time * 0.9 * lanternSpeed)) * (8 + (level - 2) * 4);
+      obstacles.push({
+        id: 'lantern',
+        type: 'lantern',
+        x: lanternX,
+        y: lanternY,
+        radius: 26 + (level - 2) * 3,
+        label: '🏮 LANTERN SWAY BOUNCE!',
+        rotation: Math.sin(time * 0.9 * lanternSpeed) * 0.15,
+      });
+    }
+    // Level 3+: Bonsai Branch extending in front of mug
+    if (level >= 3) {
+      const bonsaiSpeed = 0.8 + (level - 3) * 0.35;
+      obstacles.push({
+        id: 'bonsai',
+        type: 'bonsai',
+        x: width * 0.33,
+        y: mugY + 24 + Math.sin(time * 0.8 * bonsaiSpeed) * (6 + (level - 3) * 4),
+        radius: 28 + (level - 3) * 3,
+        label: '🪴 BONSAI BRANCH DEFLECTION!',
+      });
+    }
+  } else if (theme === 'porch') {
+    // Level 2+: Gentle Fluttering Hummingbird directly in front of mug
+    if (level >= 2) {
+      // Gentle, graceful flight on Level 2 that speeds up progressively on higher levels
+      const birdSpeed = 0.75 + (level - 2) * 0.4;
+      const birdX = width * 0.5 + Math.sin(time * 1.1 * birdSpeed) * (width * (0.12 + (level - 2) * 0.04));
+      const birdY = mugY - 18 + Math.sin(time * 2.2 * birdSpeed) * (8 + (level - 2) * 6);
+      obstacles.push({
+        id: 'hummingbird',
+        type: 'hummingbird',
+        x: birdX,
+        y: birdY,
+        radius: 20 + (level - 2) * 3,
+        label: '🐦 HUMMINGBIRD FLUTTER BOUNCE!',
+      });
+    }
+    // Level 3+: Hanging Fern Plant swaying wide in front of and away from mug
+    if (level >= 3) {
+      const fernSpeed = 0.7 + (level - 3) * 0.3;
+      // Sway in a wider arc (amplitude ~0.15 of canvas width) so it moves far away from the mug, creating clear windows to land
+      const swingAmp = width * (0.15 + (level - 3) * 0.02);
+      const fernX = width * 0.62 + Math.sin(time * 0.9 * fernSpeed) * swingAmp;
+      const fernY = mugY - 14 + Math.cos(time * 0.9 * fernSpeed * 2) * (10 + (level - 3) * 4);
+      obstacles.push({
+        id: 'hanging_plant',
+        type: 'hanging_plant',
+        x: fernX,
+        y: fernY,
+        radius: 28 + (level - 3) * 3,
+        label: '🌿 FERN VINE DEFLECTION!',
+      });
+    }
+  }
+
+  return obstacles;
+}
+
+function drawObstacles(ctx: CanvasRenderingContext2D, obstacles: CanvasObstacle[]) {
+  obstacles.forEach((obs) => {
+    ctx.save();
+    ctx.translate(obs.x, obs.y);
+    if (obs.rotation) {
+      ctx.rotate(obs.rotation);
+    }
+
+    if (obs.type === 'cat_paw') {
+      // Fluffy cat arm extending with pink paw pads
+      ctx.fillStyle = '#ea580c'; // Orange tabby fur
+      ctx.beginPath();
+      ctx.roundRect(-22, -18, 44, 75, 14);
+      ctx.fill();
+
+      // Fur stripes
+      ctx.fillStyle = '#c2410c';
+      ctx.fillRect(-18, -8, 36, 4);
+      ctx.fillRect(-18, 8, 36, 4);
+
+      // Main center paw pad
+      ctx.beginPath();
+      ctx.ellipse(0, -4, 13, 10, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#f472b6'; // Pink pad
+      ctx.fill();
+
+      // 4 Toe pads
+      const toeOffsets = [-14, -5, 5, 14];
+      toeOffsets.forEach((tx) => {
+        ctx.beginPath();
+        ctx.ellipse(tx, -20, 4.5, 5.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    } else if (obs.type === 'toaster') {
+      // Retro silver Toaster
+      ctx.fillStyle = '#cbd5e1';
+      ctx.beginPath();
+      ctx.roundRect(-24, -18, 48, 36, 8);
+      ctx.fill();
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Toaster slot
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-18, -16, 36, 4);
+
+      // Toast slice popping up
+      if (obs.extraData?.toastPop > 2) {
+        ctx.fillStyle = '#d97706'; // Golden toast
+        ctx.beginPath();
+        ctx.roundRect(-14, -28 - obs.extraData.toastPop * 0.3, 28, 22, 5);
+        ctx.fill();
+        ctx.strokeStyle = '#b45309';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    } else if (obs.type === 'fan') {
+      // Spinning Fan
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.beginPath();
+      ctx.arc(0, 0, obs.radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#38bdf8';
+      for (let i = 0; i < 4; i++) {
+        ctx.rotate(Math.PI / 2);
+        ctx.beginPath();
+        ctx.ellipse(0, 18, 8, 18, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Center cap
+      ctx.fillStyle = '#0284c7';
+      ctx.beginPath();
+      ctx.arc(0, 0, 8, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (obs.type === 'paper_plane') {
+      // Paper Airplane
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(22, 0);
+      ctx.lineTo(-18, -14);
+      ctx.lineTo(-8, 0);
+      ctx.lineTo(-18, 14);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Flight dash trail
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(-20, 0);
+      ctx.lineTo(-45, 0);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else if (obs.type === 'rolling_chair') {
+      // Executive Office Chair
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath();
+      ctx.roundRect(-22, -24, 44, 30, 8); // Backrest
+      ctx.fill();
+
+      ctx.fillStyle = '#334155';
+      ctx.beginPath();
+      ctx.roundRect(-24, 6, 48, 12, 4); // Seat cushion
+      ctx.fill();
+
+      // Chair stem & base
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, 18);
+      ctx.lineTo(0, 30);
+      ctx.stroke();
+    } else if (obs.type === 'lantern') {
+      // Teahouse Crimson Paper Lantern
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 22, 28, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Gold accents top/bottom
+      ctx.fillStyle = '#eab308';
+      ctx.fillRect(-14, -28, 28, 6);
+      ctx.fillRect(-14, 22, 28, 6);
+
+      // Hanging tassel
+      ctx.strokeStyle = '#eab308';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, 28);
+      ctx.lineTo(0, 48);
+      ctx.stroke();
+    } else if (obs.type === 'bonsai') {
+      // Bonsai foliage cloud
+      ctx.fillStyle = '#15803d'; // Lush green
+      ctx.beginPath();
+      ctx.arc(-10, -5, 18, 0, Math.PI * 2);
+      ctx.arc(10, -8, 20, 0, Math.PI * 2);
+      ctx.arc(0, -18, 16, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Trunk
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-15, 15, -5, 25);
+      ctx.stroke();
+    } else if (obs.type === 'hummingbird') {
+      // Hummingbird
+      ctx.fillStyle = '#0d9488'; // Turquoise
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 16, 10, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Beak
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(14, -2);
+      ctx.lineTo(28, -5);
+      ctx.stroke();
+
+      // Rapid wing flutter
+      ctx.fillStyle = 'rgba(20, 184, 166, 0.5)';
+      ctx.beginPath();
+      ctx.ellipse(-2, -12, 6, 16, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (obs.type === 'hanging_plant') {
+      // Redesigned Botanical Hanging Planter with Cascading Ivy Vines
+
+      // 1. Suspension Chains / Cords extending upward
+      ctx.strokeStyle = '#d97706'; // Warm brass / macramé gold
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      // Three support cords gathered at top ring
+      ctx.moveTo(-18, -10);
+      ctx.lineTo(0, -45);
+      ctx.moveTo(0, -10);
+      ctx.lineTo(0, -45);
+      ctx.moveTo(18, -10);
+      ctx.lineTo(0, -45);
+      // Main chain extending to ceiling
+      ctx.moveTo(0, -45);
+      ctx.lineTo(0, -120);
+      ctx.stroke();
+
+      // Hanging ring
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, -45, 5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // 2. Ceramic / Terracotta Planter Bowl
+      // Shadow behind pot
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.beginPath();
+      ctx.ellipse(0, 10, 20, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Terracotta Bowl Body
+      ctx.fillStyle = '#c2410c'; // Warm terracotta
+      ctx.beginPath();
+      ctx.moveTo(-20, -10);
+      ctx.lineTo(20, -10);
+      ctx.quadraticCurveTo(18, 16, 0, 18);
+      ctx.quadraticCurveTo(-18, 16, -20, -10);
+      ctx.closePath();
+      ctx.fill();
+
+      // White Glazed Decorative Band on Pot
+      ctx.fillStyle = '#fef3c7';
+      ctx.fillRect(-19, -4, 38, 5);
+
+      // Pot Rim
+      ctx.fillStyle = '#ea580c';
+      ctx.beginPath();
+      ctx.ellipse(0, -10, 21, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#9a3412';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // 3. Dense Top Foliage Dome
+      ctx.fillStyle = '#15803d'; // Deep forest green background
+      ctx.beginPath();
+      ctx.arc(-10, -16, 12, 0, Math.PI * 2);
+      ctx.arc(10, -16, 12, 0, Math.PI * 2);
+      ctx.arc(0, -20, 14, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#22c55e'; // Vibrant emerald leaves
+      ctx.beginPath();
+      ctx.arc(-12, -14, 9, 0, Math.PI * 2);
+      ctx.arc(12, -14, 9, 0, Math.PI * 2);
+      ctx.arc(0, -16, 11, 0, Math.PI * 2);
+      ctx.arc(-5, -22, 8, 0, Math.PI * 2);
+      ctx.arc(5, -22, 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 4. Cascading Ivy Vines & Variegated Leaves
+      const vines = [
+        { startX: -16, cpX: -26, endX: -20, endY: 38 },
+        { startX: -8, cpX: -14, endX: -10, endY: 52 },
+        { startX: 0, cpX: 4, endX: 2, endY: 44 },
+        { startX: 8, cpX: 16, endX: 12, endY: 56 },
+        { startX: 16, cpX: 24, endX: 20, endY: 36 },
+      ];
+
+      ctx.strokeStyle = '#16a34a';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+
+      vines.forEach((v) => {
+        ctx.beginPath();
+        ctx.moveTo(v.startX, -4);
+        ctx.quadraticCurveTo(v.cpX, (v.endY - 4) * 0.5, v.endX, v.endY);
+        ctx.stroke();
+      });
+
+      // Heart/Ivy Leaf Clusters along vines
+      const ivyLeaves = [
+        { x: -20, y: 12, size: 5, rot: -0.5, col: '#4ade80' },
+        { x: -24, y: 26, size: 4.5, rot: -0.8, col: '#22c55e' },
+        { x: -20, y: 38, size: 3.5, rot: -0.4, col: '#a3e635' },
+
+        { x: -10, y: 16, size: 5.5, rot: 0.2, col: '#22c55e' },
+        { x: -14, y: 32, size: 5, rot: -0.3, col: '#4ade80' },
+        { x: -10, y: 50, size: 3.5, rot: 0.1, col: '#86efac' },
+
+        { x: 2, y: 14, size: 5, rot: 0.4, col: '#a3e635' },
+        { x: 4, y: 28, size: 4.5, rot: -0.2, col: '#22c55e' },
+        { x: 2, y: 42, size: 3.5, rot: 0.3, col: '#4ade80' },
+
+        { x: 12, y: 18, size: 5.5, rot: 0.5, col: '#4ade80' },
+        { x: 16, y: 36, size: 4.5, rot: 0.8, col: '#22c55e' },
+        { x: 12, y: 54, size: 3.5, rot: 0.2, col: '#a3e635' },
+
+        { x: 22, y: 14, size: 4.5, rot: 0.6, col: '#22c55e' },
+        { x: 20, y: 32, size: 4, rot: 0.9, col: '#4ade80' },
+      ];
+
+      ivyLeaves.forEach((leaf) => {
+        ctx.save();
+        ctx.translate(leaf.x, leaf.y);
+        ctx.rotate(leaf.rot);
+        ctx.fillStyle = leaf.col;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, leaf.size, leaf.size * 1.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Inner vein
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(0, -leaf.size * 1.2);
+        ctx.lineTo(0, leaf.size * 1.2);
+        ctx.stroke();
+        ctx.restore();
+      });
+
+      // 5. Delicate Little White Flowers
+      const flowers = [
+        { x: -16, y: 20 },
+        { x: -8, y: 40 },
+        { x: 8, y: 24 },
+        { x: 14, y: 44 },
+      ];
+
+      flowers.forEach((fl) => {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(fl.x, fl.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fef08a';
+        ctx.beginPath();
+        ctx.arc(fl.x, fl.y, 1, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    ctx.restore();
+  });
 }
 
 function drawFanAndWind(
@@ -908,20 +2098,26 @@ function drawMug(
   ctx.restore();
 }
 
-function drawTeaBag(ctx: CanvasRenderingContext2D, bag: TeaBagPhysics, teaType: TeaType) {
+function drawTeaBag(
+  ctx: CanvasRenderingContext2D,
+  bag: TeaBagPhysics,
+  teaType: TeaType,
+  scrunchLevel: number = 0
+) {
   ctx.save();
+  const scrunchRatio = Math.min(1, Math.max(0, scrunchLevel / 100));
 
   // 1. Draw String connecting Tag -> Bag
   ctx.beginPath();
   ctx.moveTo(bag.tagX, bag.tagY);
 
-  // Gentle curve on string
+  // Curve on string gets tighter as bag becomes a ball
   const midX = (bag.tagX + bag.x) / 2;
-  const midY = (bag.tagY + bag.y) / 2 + 6;
-  ctx.quadraticCurveTo(midX, midY, bag.x, bag.y - 12);
+  const midY = (bag.tagY + bag.y) / 2 + (6 - scrunchRatio * 4);
+  ctx.quadraticCurveTo(midX, midY, bag.x, bag.y - (12 - scrunchRatio * 4));
 
-  ctx.strokeStyle = '#f5f5f4';
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = scrunchRatio > 0.7 ? '#fef08a' : '#f5f5f4';
+  ctx.lineWidth = scrunchRatio > 0.3 ? 1.5 : 2;
   ctx.stroke();
 
   // 2. Draw Tag
@@ -929,120 +2125,269 @@ function drawTeaBag(ctx: CanvasRenderingContext2D, bag: TeaBagPhysics, teaType: 
   ctx.translate(bag.tagX, bag.tagY);
   ctx.fillStyle = teaType.bagColor;
   ctx.fillRect(-8, -10, 16, 20);
-  ctx.strokeStyle = '#ffffff';
+  ctx.strokeStyle = scrunchRatio > 0.7 ? '#fef08a' : '#ffffff';
   ctx.lineWidth = 1;
   ctx.strokeRect(-8, -10, 16, 20);
 
-  // Tiny tea icon/symbol on tag
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 9px sans-serif';
+  ctx.font = 'bold 8px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('TEA', 0, 3);
+  ctx.fillText(scrunchRatio > 0.5 ? 'AERO' : 'TEA', 0, 3);
   ctx.restore();
 
-  // 3. Draw Tea Bag Main Filter Pouch
+  // 3. Draw Tea Bag Main Pouch / Scrunched Ball
   ctx.translate(bag.x, bag.y);
   ctx.rotate(bag.angle);
 
-  // Outer Glow if special
-  if (teaType.specialEffect === 'glow') {
+  // Outer Glow / Aerodynamic aura if scrunched
+  if (scrunchRatio > 0.7) {
+    ctx.shadowColor = '#f59e0b';
+    ctx.shadowBlur = 8 + scrunchRatio * 10;
+
+    // Glowing Aerodynamic Ring around sphere
+    ctx.strokeStyle = `rgba(245, 158, 11, ${0.4 + scrunchRatio * 0.5})`;
+    ctx.lineWidth = 1.5 + scrunchRatio;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 14 + scrunchRatio * 5, 8 + scrunchRatio * 3, bag.angle, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (teaType.specialEffect === 'glow') {
     ctx.shadowColor = teaType.particleColor;
     ctx.shadowBlur = 12;
   }
 
-  // Trapezoid Tea Bag Pouch
-  ctx.fillStyle = '#fafaf9'; // Off-white porous tea bag paper
-  ctx.strokeStyle = '#e7e5e4';
-  ctx.lineWidth = 2;
+  if (scrunchRatio === 0) {
+    // Standard Loose Trapezoid Pouch
+    ctx.fillStyle = '#fafaf9';
+    ctx.strokeStyle = '#e7e5e4';
+    ctx.lineWidth = 2;
 
-  ctx.beginPath();
-  ctx.moveTo(-12, -14);
-  ctx.lineTo(12, -14);
-  ctx.lineTo(16, 16);
-  ctx.lineTo(-16, 16);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-12, -14);
+    ctx.lineTo(12, -14);
+    ctx.lineTo(16, 16);
+    ctx.lineTo(-16, 16);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
 
-  // Tea Leaves texture visible inside translucent filter pouch
-  ctx.fillStyle = teaType.teaColor;
-  ctx.globalAlpha = 0.55;
-  ctx.beginPath();
-  ctx.arc(-4, 0, 6, 0, Math.PI * 2);
-  ctx.arc(4, 4, 5, 0, Math.PI * 2);
-  ctx.arc(0, 8, 4, 0, Math.PI * 2);
-  ctx.fill();
+    ctx.fillStyle = teaType.teaColor;
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.arc(-4, 0, 6, 0, Math.PI * 2);
+    ctx.arc(4, 4, 5, 0, Math.PI * 2);
+    ctx.arc(0, 8, 4, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Morphing Scrunched Ball (0% -> 100%)
+    const ballRadius = 15 - scrunchRatio * 3; // 15px down to 12px
+
+    // Color gradient interpolation from off-white to warm golden scrunched paper
+    const paperColor = scrunchRatio > 0.6 ? '#fde68a' : '#f5f5f4';
+    ctx.fillStyle = paperColor;
+    ctx.strokeStyle = scrunchRatio > 0.6 ? '#d97706' : '#d6d3d1';
+    ctx.lineWidth = 1.5 + scrunchRatio * 0.8;
+
+    ctx.beginPath();
+    ctx.arc(0, 0, ballRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Crinkle texture paper folds
+    ctx.strokeStyle = scrunchRatio > 0.6 ? '#b45309' : '#78716c';
+    ctx.lineWidth = 1 + scrunchRatio * 0.4;
+    ctx.beginPath();
+    ctx.moveTo(-ballRadius * 0.7, -ballRadius * 0.2);
+    ctx.lineTo(ballRadius * 0.2, ballRadius * 0.5);
+    ctx.moveTo(-ballRadius * 0.2, -ballRadius * 0.6);
+    ctx.lineTo(ballRadius * 0.6, ballRadius * 0.2);
+    ctx.stroke();
+
+    // Tea leaf core inside folds
+    ctx.fillStyle = teaType.teaColor;
+    ctx.globalAlpha = 0.6 + scrunchRatio * 0.35;
+    ctx.beginPath();
+    ctx.arc(0, 0, 3 + scrunchRatio * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   ctx.restore();
 }
 
-function drawTrajectoryGuide(
-  ctx: CanvasRenderingContext2D,
-  dragStart: TrajectoryPoint,
-  dragCurrent: TrajectoryPoint,
-  wind: WindState,
-  bag: TeaBagPhysics,
-  history: { x: number; y: number; time: number }[]
+function computeFlickVector(
+  dragStart: TrajectoryPoint | null,
+  dragCurrent: TrajectoryPoint | null,
+  history: { x: number; y: number; time: number }[],
+  now: number = performance.now()
 ) {
-  const totalDx = dragCurrent.x - dragStart.x;
-  const totalDy = dragCurrent.y - dragStart.y;
-  const totalDist = Math.hypot(totalDx, totalDy);
+  let dragVx = 0;
+  let dragVy = 0;
+  let hasDrag = false;
 
-  let vx = 0;
-  let vy = 0;
+  if (dragStart && dragCurrent) {
+    const totalDx = dragCurrent.x - dragStart.x;
+    const totalDy = dragCurrent.y - dragStart.y;
+
+    if (totalDy > 10) {
+      // Slingshot pull down -> shoot UP in opposite direction
+      dragVx = -totalDx * 0.14;
+      dragVy = -totalDy * 0.16;
+      hasDrag = true;
+    } else if (totalDy < -10) {
+      // Direct drag UP -> shoot UP in drag direction
+      dragVx = totalDx * 0.14;
+      dragVy = totalDy * 0.16;
+      hasDrag = true;
+    }
+  }
+
+  let swipeVx = 0;
+  let swipeVy = 0;
+  let hasSwipe = false;
 
   if (history.length >= 2) {
     const recent = history[history.length - 1];
     let startPoint = history[0];
     for (let i = history.length - 2; i >= 0; i--) {
-      if (recent.time - history[i].time >= 30) {
+      if (recent.time - history[i].time >= 15) {
         startPoint = history[i];
         break;
       }
     }
-    const dt = Math.max(recent.time - startPoint.time, 12);
+
+    const dt = Math.max(recent.time - startPoint.time, 10);
     const dx = recent.x - startPoint.x;
     const dy = recent.y - startPoint.y;
-    const scale = 6.2;
-    vx = (dx / dt) * scale;
-    vy = (dy / dt) * scale;
+
+    if ((now === 0 || now - recent.time <= 150) && dy < -2) {
+      const scale = 6.8;
+      swipeVx = (dx / dt) * scale;
+      swipeVy = (dy / dt) * scale;
+      hasSwipe = true;
+    }
   }
 
-  // Slingshot / Drag fallbacks
-  if (totalDy > 15 && Math.hypot(vx, vy) < 3.5) {
-    vx = -totalDx * 0.16;
-    vy = -totalDy * 0.18;
-  } else if (Math.hypot(vx, vy) < 1.8 && totalDist > 8) {
-    vx = totalDx * 0.16;
-    vy = totalDy * 0.16;
+  let vx = 0;
+  let vy = 0;
+
+  if (hasDrag && hasSwipe) {
+    if (dragStart && dragCurrent && (dragCurrent.y - dragStart.y) > 10) {
+      // Slingshot pull down takes priority if actively pulled down
+      vx = dragVx;
+      vy = dragVy;
+    } else {
+      // Pick stronger energy vector for upward gestures
+      const dragSpeed = Math.hypot(dragVx, dragVy);
+      const swipeSpeed = Math.hypot(swipeVx, swipeVy);
+      if (swipeSpeed >= dragSpeed) {
+        vx = swipeVx;
+        vy = swipeVy;
+      } else {
+        vx = dragVx;
+        vy = dragVy;
+      }
+    }
+  } else if (hasSwipe) {
+    vx = swipeVx;
+    vy = swipeVy;
+  } else if (hasDrag) {
+    vx = dragVx;
+    vy = dragVy;
   }
 
-  if (totalDy < -8 && vy > -3) {
-    vy = -Math.max(Math.abs(vy), Math.abs(totalDy) * 0.16);
-  }
+  return { vx, vy, speed: Math.hypot(vx, vy) };
+}
 
-  const speed = Math.hypot(vx, vy);
-  if (speed < 0.8 && totalDist < 8) return;
+function drawFlickVectorGuide(
+  ctx: CanvasRenderingContext2D,
+  dragStart: TrajectoryPoint | null,
+  dragCurrent: TrajectoryPoint | null,
+  wind: WindState,
+  bag: TeaBagPhysics,
+  history: { x: number; y: number; time: number }[],
+  teaType?: TeaType,
+  scrunchLevel: number = 0
+) {
+  const gravity = teaType?.gravity ?? 0.38;
+  const baseWindSens = teaType?.windSensitivity ?? 1.0;
+  const scrunchRatio = Math.min(1, Math.max(0, scrunchLevel / 100));
+  const windSensitivity = baseWindSens * (1.0 - scrunchRatio * 0.75);
 
-  let simX = bag.x;
-  let simY = bag.y;
+  const { vx, vy, speed } = computeFlickVector(dragStart, dragCurrent, history, 0);
 
   ctx.save();
-  ctx.lineWidth = 3;
 
-  for (let step = 0; step < 32; step++) {
-    vy += 0.38;
-    vx += wind.speed * wind.direction * 0.035;
-    vx *= 0.992;
-    vy *= 0.992;
-
-    simX += vx;
-    simY += vy;
-
-    ctx.fillStyle = `rgba(245, 158, 11, ${1 - step / 32})`;
+  if (vy >= 0 || speed < 1.5) {
+    // Subtle touch ring around bag indicating ready to flick
+    ctx.strokeStyle = 'rgba(245, 158, 11, 0.50)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
     ctx.beginPath();
-    ctx.arc(simX, simY, Math.max(5 - step * 0.12, 1.5), 0, Math.PI * 2);
+    ctx.arc(bag.x, bag.y, 24, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  // Draw Dynamic Flick Impulse Arrow & Motion Trail
+  const angle = Math.atan2(vy, vx);
+  const arrowLength = Math.min(speed * 3.5, 80);
+
+  ctx.strokeStyle = 'rgba(245, 158, 11, 0.85)';
+  ctx.fillStyle = 'rgba(245, 158, 11, 0.85)';
+  ctx.lineWidth = 3.5;
+  ctx.lineCap = 'round';
+
+  ctx.beginPath();
+  ctx.moveTo(bag.x, bag.y);
+  ctx.lineTo(bag.x + Math.cos(angle) * arrowLength, bag.y + Math.sin(angle) * arrowLength);
+  ctx.stroke();
+
+  // Arrowhead tip
+  const tipX = bag.x + Math.cos(angle) * arrowLength;
+  const tipY = bag.y + Math.sin(angle) * arrowLength;
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(tipX - 12 * Math.cos(angle - 0.4), tipY - 12 * Math.sin(angle - 0.4));
+  ctx.lineTo(tipX - 12 * Math.cos(angle + 0.4), tipY - 12 * Math.sin(angle + 0.4));
+  ctx.closePath();
+  ctx.fill();
+
+  // Simulated Trajectory Arc - Extends further and becomes pinpoint accurate with scrunchLevel!
+  let simX = bag.x;
+  let simY = bag.y;
+  let simVx = vx;
+  let simVy = vy;
+
+  const totalSteps = 10 + Math.round(scrunchRatio * 22);
+  const airDrag = 0.992 + (scrunchRatio * 0.005);
+
+  for (let step = 0; step < totalSteps; step++) {
+    simVy += gravity;
+    simVx += wind.speed * wind.direction * 0.035 * windSensitivity;
+    simVx *= airDrag;
+    simVy *= airDrag;
+
+    simX += simVx;
+    simY += simVy;
+
+    const alpha = Math.max(0.1, 0.95 - (step / totalSteps) * 0.7);
+    ctx.fillStyle = scrunchRatio > 0.5 ? `rgba(251, 191, 36, ${alpha})` : `rgba(245, 158, 11, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(simX, simY, Math.max(4.5 - (step / totalSteps) * 2.5, 1.4), 0, Math.PI * 2);
     ctx.fill();
+
+    if (step === totalSteps - 1 && scrunchRatio > 0.2) {
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(simX, simY, 7 + scrunchRatio * 5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(simX, simY, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   ctx.restore();

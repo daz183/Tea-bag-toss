@@ -13,6 +13,9 @@ export interface TeaType {
   price: number;
   scoreMultiplier: number;
   specialEffect?: 'glow' | 'leaves' | 'sparkles' | 'steam' | 'mint';
+  weightLabel?: string;
+  gravity?: number; // e.g. 0.38 standard
+  windSensitivity?: number; // e.g. 1.0 standard, >1 floaty, <1 heavy
 }
 
 export interface MugType {
@@ -43,7 +46,7 @@ export interface Particle {
   alpha: number;
   life: number;
   maxLife: number;
-  type: 'wind' | 'splash' | 'steam' | 'sparkle' | 'confetti';
+  type: 'wind' | 'splash' | 'steam' | 'sparkle' | 'confetti' | 'leaf' | 'mint';
 }
 
 export interface TrajectoryPoint {
@@ -64,6 +67,7 @@ export interface GameStats {
   selectedTea: string;
   selectedMug: string;
   selectedTheme: EnvironmentTheme;
+  scrunchLevel?: number; // 0 = Standard, 1 = Folded, 2 = Scrunched Ball, 3 = Aerodynamic Sphere
   soundEnabled: boolean;
 }
 
@@ -72,6 +76,18 @@ export interface ShotResult {
   scoreGained: number;
   combo: number;
   message: string;
+}
+
+export interface Obstacle {
+  id: string;
+  name: string;
+  type: 'cat_paw' | 'toaster' | 'fan' | 'paper_plane' | 'rolling_chair' | 'lantern' | 'bonsai' | 'shoji' | 'hummingbird' | 'hanging_plant' | 'pinwheel';
+  x: number;
+  y: number;
+  radius?: number;
+  width?: number;
+  height?: number;
+  label: string;
 }
 
 export interface Achievement {

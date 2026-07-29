@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { TeaType, MugType } from '../types';
 import { TEA_TYPES, MUG_TYPES } from '../data/items';
-import { X, Check, Lock, Sparkles, Coffee, Shirt, ShieldCheck } from 'lucide-react';
+import { X, Check, Lock, Sparkles, Coffee, ShieldCheck, ShoppingBag } from 'lucide-react';
 import { sound } from '../utils/audio';
+import { TeaBagIcon, MugIcon } from './ShopIcons';
 
 interface ShopModalProps {
   isOpen: boolean;
@@ -12,6 +13,8 @@ interface ShopModalProps {
   unlockedMugs: string[];
   selectedTeaId: string;
   selectedMugId: string;
+  scrunchLevel?: number;
+  onScrunchChange?: (level: number) => void;
   onUnlockTea: (teaId: string, price: number) => void;
   onUnlockMug: (mugId: string, price: number) => void;
   onSelectTea: (teaId: string) => void;
@@ -26,12 +29,25 @@ export const ShopModal: React.FC<ShopModalProps> = ({
   unlockedMugs,
   selectedTeaId,
   selectedMugId,
+  scrunchLevel = 0,
+  onScrunchChange,
   onUnlockTea,
   onUnlockMug,
   onSelectTea,
   onSelectMug,
 }) => {
-  const [activeTab, setActiveTab] = useState<'teas' | 'mugs'>('teas');
+  const [activeTab, setActiveTab] = useState<'teas' | 'mugs' | 'aerodynamics'>('teas');
+  const [pendingScrunch, setPendingScrunch] = useState<number>(scrunchLevel);
+
+  React.useEffect(() => {
+    setPendingScrunch(scrunchLevel);
+  }, [scrunchLevel]);
+
+  const currentCost = scrunchLevel <= 0 ? 0 : 50 + (scrunchLevel - 1);
+  const pendingCost = pendingScrunch <= 0 ? 0 : 50 + (pendingScrunch - 1);
+  const costToApply = pendingScrunch > scrunchLevel ? pendingCost - currentCost : 0;
+  const canAfford = teaLeaves >= costToApply;
+  const isChanged = pendingScrunch !== scrunchLevel;
 
   if (!isOpen) return null;
 
@@ -96,8 +112,23 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                 : 'border-transparent text-stone-400 hover:text-stone-200'
             }`}
           >
-            <Shirt className="w-4 h-4" />
+            <Coffee className="w-4 h-4" />
             <span>Custom Mugs ({unlockedMugs.length}/{MUG_TYPES.length})</span>
+          </button>
+
+          <button
+            onClick={() => {
+              sound.playClick();
+              setActiveTab('aerodynamics');
+            }}
+            className={`px-4 py-2.5 rounded-t-xl font-bold text-sm flex items-center gap-2 transition border-b-2 ${
+              activeTab === 'aerodynamics'
+                ? 'border-amber-500 text-amber-400 bg-stone-800/60'
+                : 'border-transparent text-stone-400 hover:text-stone-200'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-emerald-400" />
+            <span>Aerodynamics 🍃</span>
           </button>
         </div>
 
@@ -121,20 +152,20 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                   }`}
                 >
                   <div className="flex items-center gap-3 sm:gap-4">
-                    {/* Tag preview badge */}
-                    <div
-                      className="w-10 h-12 rounded-md flex items-center justify-center font-bold text-[10px] text-white shadow-md border border-white/20 shrink-0"
-                      style={{ backgroundColor: tea.bagColor }}
-                    >
-                      TEA
-                    </div>
+                    {/* Detailed Vector Tea Bag Icon */}
+                    <TeaBagIcon tea={tea} size={58} />
 
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-bold text-amber-100">{tea.name}</h3>
                         <span className="text-xs bg-amber-950/80 text-amber-400 border border-amber-800/60 px-2 py-0.5 rounded-md font-mono">
                           +{Math.round((tea.scoreMultiplier - 1) * 100)}% Pts
                         </span>
+                        {tea.weightLabel && (
+                          <span className="text-xs bg-stone-950/80 text-stone-300 border border-stone-700/80 px-2 py-0.5 rounded-md font-mono">
+                            ⚖️ {tea.weightLabel}
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-stone-400 mt-1">{tea.flavorText}</p>
                     </div>
@@ -197,11 +228,8 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                   }`}
                 >
                   <div className="flex items-center gap-3 sm:gap-4">
-                    {/* Mug swatch circle */}
-                    <div
-                      className="w-10 h-10 rounded-full border-2 border-white/20 shadow-inner shrink-0"
-                      style={{ backgroundColor: mug.color }}
-                    />
+                    {/* Detailed Vector Mug Icon */}
+                    <MugIcon mug={mug} size={58} />
 
                     <div>
                       <div className="flex items-center gap-2">
@@ -252,6 +280,202 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                 </div>
               );
             })}
+
+          {activeTab === 'aerodynamics' && (
+            <div className="space-y-4">
+              <div className="p-4 bg-amber-950/40 border border-amber-600/40 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div>
+                    <h3 className="font-bold text-amber-200 text-base flex items-center gap-2 flex-wrap">
+                      <span>Scrunch Bag Aerodynamics Slider</span>
+                      <span className="text-xs bg-stone-800 text-amber-300 font-mono font-black px-2.5 py-0.5 rounded-full border border-amber-500/40">
+                        Active: {scrunchLevel}%
+                      </span>
+                      {isChanged && (
+                        <span className="text-xs bg-amber-500 text-stone-950 font-black px-2.5 py-0.5 rounded-full shadow">
+                          Selected: {pendingScrunch}%
+                        </span>
+                      )}
+                    </h3>
+                    <p className="text-xs text-stone-300 mt-1 leading-relaxed">
+                      Slide to preview your tea bag scrunch level! Starts at 50 🍃 Tea Leaves for 1%, plus 1 🍃 per additional % (100% Aero Sphere = 149 🍃). Click <strong>APPLY SCRUNCH LEVEL</strong> below to confirm and spend tea leaves.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Interactive Slider Input */}
+                <div className="bg-stone-900/80 p-3.5 rounded-xl border border-stone-700/60 space-y-3">
+                  <div className="flex items-center justify-between text-xs font-mono font-bold flex-wrap gap-1">
+                    <span className="text-stone-400">📄 0% (Loose)</span>
+                    <span className="text-emerald-400">
+                      🎯 Accuracy: +{pendingScrunch}% • 💨 Wind Drift: -{Math.round(pendingScrunch * 0.75)}%
+                    </span>
+                    <span className="text-amber-400">⚽ 100% (Aero Sphere)</span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={pendingScrunch}
+                    onChange={(e) => setPendingScrunch(Number(e.target.value))}
+                    className="w-full h-3 accent-amber-500 bg-stone-700 rounded-lg cursor-pointer hover:bg-stone-600 transition"
+                  />
+
+                  <div className="flex justify-between gap-1.5 pt-1 flex-wrap">
+                    {[
+                      { label: '0% (Loose)', val: 0, icon: '📄' },
+                      { label: '25% (Folded)', val: 25, icon: '📦' },
+                      { label: '50% (Ball)', val: 50, icon: '🧆' },
+                      { label: '75% (Tight)', val: 75, icon: '🌕' },
+                      { label: '100% (Sphere)', val: 100, icon: '⚽' },
+                    ].map((preset) => (
+                      <button
+                        key={preset.val}
+                        onClick={() => setPendingScrunch(preset.val)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono transition flex items-center gap-1.5 ${
+                          pendingScrunch === preset.val
+                            ? 'bg-amber-500 text-stone-950 shadow-md font-extrabold ring-2 ring-amber-300'
+                            : 'bg-stone-800 text-stone-300 hover:text-white border border-stone-700'
+                        }`}
+                      >
+                        <span>{preset.icon}</span>
+                        <span className="hidden sm:inline">{preset.label}</span>
+                        <span className="sm:hidden">{preset.val}%</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Apply Button in Shop Modal */}
+                  <div className="pt-2 border-t border-stone-800 flex items-center justify-between gap-3 flex-wrap">
+                    <div className="text-xs font-mono">
+                      {isChanged ? (
+                        costToApply > 0 ? (
+                          <span className="text-amber-300 font-bold">
+                            Cost to Apply: <strong className="text-amber-400 text-sm">{costToApply} 🍃</strong> (You have {teaLeaves} 🍃)
+                          </span>
+                        ) : (
+                          <span className="text-emerald-400 font-bold">Cost to Apply: FREE</span>
+                        )
+                      ) : (
+                        <span className="text-stone-400">Currently active at {scrunchLevel}%</span>
+                      )}
+                    </div>
+
+                    {isChanged ? (
+                      costToApply > 0 ? (
+                        canAfford ? (
+                          <button
+                            onClick={() => onScrunchChange?.(pendingScrunch)}
+                            className="px-4 py-2 rounded-xl text-xs font-mono font-black bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-lg shadow-amber-500/20 transition active:scale-95 cursor-pointer flex items-center gap-2 animate-pulse"
+                          >
+                            <Sparkles className="w-4 h-4" />
+                            <span>APPLY SCRUNCH LEVEL ({costToApply} 🍃)</span>
+                          </button>
+                        ) : (
+                          <button
+                            disabled
+                            className="px-4 py-2 rounded-xl text-xs font-mono font-bold bg-rose-950/80 text-rose-300 border border-rose-500/50 cursor-not-allowed opacity-90"
+                          >
+                            NEED {costToApply} 🍃 TEA LEAVES
+                          </button>
+                        )
+                      ) : (
+                        <button
+                          onClick={() => onScrunchChange?.(pendingScrunch)}
+                          className="px-4 py-2 rounded-xl text-xs font-mono font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition active:scale-95 cursor-pointer flex items-center gap-2"
+                        >
+                          <Check className="w-4 h-4" />
+                          <span>APPLY SCRUNCH LEVEL (FREE)</span>
+                        </button>
+                      )
+                    ) : (
+                      <button
+                        disabled
+                        className="px-4 py-2 rounded-xl text-xs font-mono font-bold bg-stone-800 text-stone-500 border border-stone-700/60 cursor-default"
+                      >
+                        SCRUNCH LEVEL APPLIED
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  {
+                    range: '0% - 20%',
+                    icon: '📄',
+                    title: 'Loose Filter Pouch',
+                    desc: 'Standard un-scrunched tea bag with natural fluttering and full wind draft.',
+                    windRed: '0% Drift Reduction',
+                    accuracy: 'Standard Line Guide',
+                  },
+                  {
+                    range: '21% - 50%',
+                    icon: '📦',
+                    title: 'Compact Folded Bag',
+                    desc: 'Tucked corners reduce fluttering for cleaner flight trajectory.',
+                    windRed: '-15% to -37% Wind Drift',
+                    accuracy: '+25% Extended Trajectory',
+                  },
+                  {
+                    range: '51% - 80%',
+                    icon: '🧆',
+                    title: 'Scrunched Tea Ball',
+                    desc: 'Dense crinkled ball shape that pierces crosswinds cleanly.',
+                    windRed: '-38% to -60% Wind Drift',
+                    accuracy: '+60% Extended Trajectory',
+                  },
+                  {
+                    range: '81% - 100%',
+                    icon: '⚽',
+                    title: 'Aerodynamic Sphere',
+                    desc: 'A golden sphere with high flight momentum, laser targeting crosshair, and maximum precision!',
+                    windRed: '-61% to -75% Wind Drift',
+                    accuracy: '🎯 Precision Targeting Crosshair',
+                  },
+                ].map((item) => {
+                  const isActiveCategory =
+                    (scrunchLevel <= 20 && item.range === '0% - 20%') ||
+                    (scrunchLevel > 20 && scrunchLevel <= 50 && item.range === '21% - 50%') ||
+                    (scrunchLevel > 50 && scrunchLevel <= 80 && item.range === '51% - 80%') ||
+                    (scrunchLevel > 80 && item.range === '81% - 100%');
+
+                  return (
+                    <div
+                      key={item.range}
+                      className={`p-4 rounded-xl border transition ${
+                        isActiveCategory
+                          ? 'bg-amber-500/15 border-amber-500 text-amber-100 shadow-md ring-1 ring-amber-500/50'
+                          : 'bg-stone-800/40 border-stone-700/60 text-stone-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-2xl">{item.icon}</span>
+                          <div>
+                            <h4 className="font-bold text-sm flex items-center gap-2">
+                              <span>{item.title}</span>
+                              {isActiveCategory && (
+                                <span className="text-[10px] bg-amber-500 text-stone-950 font-extrabold px-2 py-0.5 rounded-full">
+                                  ACTIVE ({scrunchLevel}%)
+                                </span>
+                              )}
+                            </h4>
+                            <div className="text-[11px] font-mono text-emerald-400 font-bold mt-0.5">
+                              {item.windRed} • {item.accuracy}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-xs text-stone-400 mt-2">{item.desc}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

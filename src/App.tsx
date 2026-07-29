@@ -20,18 +20,30 @@ export default function App() {
   const [score, setScore] = useState<number>(0);
   const [streak, setStreak] = useState<number>(0);
   const [bestStreak, setBestStreak] = useState<number>(0);
-  const [lives, setLives] = useState<number>(3);
+  const [lives, setLives] = useState<number>(5);
   const [timeLeft, setTimeLeft] = useState<number>(60);
   const [isGameOver, setIsGameOver] = useState<boolean>(false);
   const [isNewHighScore, setIsNewHighScore] = useState<boolean>(false);
   const [teaLeavesEarnedSession, setTeaLeavesEarnedSession] = useState<number>(0);
+
+  // Level Progression State
+  const [level, setLevel] = useState<number>(1);
+  const [landedInLevel, setLandedInLevel] = useState<number>(0);
+  const [levelUpToast, setLevelUpToast] = useState<string | null>(null);
+
+  // Shots required to complete current level (e.g. Level 1 = 2 shots, Level 2 = 3 shots, Level 3 = 4 shots...)
+  const targetShotsForLevel = level + 1;
 
   // Persistent Game Stats & Unlocks
   const [stats, setStats] = useState<GameStats>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return {
+          ...parsed,
+          totalTeaLeaves: parsed.totalTeaLeaves ?? 20, // 20 starter leaves
+        };
       }
     } catch {
       // Ignore fallback
@@ -41,7 +53,7 @@ export default function App() {
       successfulLanded: 0,
       swishes: 0,
       rimShots: 0,
-      totalTeaLeaves: 100, // Starter bonus leaves
+      totalTeaLeaves: 20, // Starter bonus leaves
       bestStreak: 0,
       highScores: { classic: 0, timed: 0, precision: 0, zen: 0 },
       unlockedTeas: ['earl_grey'],
@@ -50,8 +62,11 @@ export default function App() {
       selectedMug: 'classic_white',
       selectedTheme: 'kitchen',
       soundEnabled: true,
+      scrunchLevel: 0,
     };
   });
+
+  const [scrunchLevel, setScrunchLevel] = useState<number>(stats.scrunchLevel ?? 0);
 
   // Achievements
   const [achievements, setAchievements] = useState<Achievement[]>(INITIAL_ACHIEVEMENTS);
@@ -84,11 +99,11 @@ export default function App() {
 
   // Randomize Wind Helper
   const randomizeWind = useCallback(() => {
-    const maxWind = gameMode === 'zen' ? 4 : 11;
+    const maxWind = gameMode === 'zen' ? 3 : Math.min(3.5 + (level - 1) * 2.0, 11);
     const speed = Math.round((Math.random() * maxWind) * 10) / 10;
     const direction = Math.random() > 0.5 ? 1 : -1;
     setWind({ speed, direction });
-  }, [gameMode]);
+  }, [gameMode, level]);
 
   // Timed Mode Countdown Timer
   useEffect(() => {
@@ -142,7 +157,8 @@ export default function App() {
       if (result.type === 'swish' || result.type === 'landed') {
         const newScore = score + result.scoreGained;
         const newStreak = streak + 1;
-        const leavesEarned = Math.round(result.scoreGained / 2);
+        // Rebalanced Earning Rate: Swish = 2 leaves, Landed = 1 leaf
+        const leavesEarned = result.type === 'swish' ? 2 : 1;
 
         setScore(newScore);
         setStreak(newStreak);
@@ -152,14 +168,52 @@ export default function App() {
           setBestStreak(newStreak);
         }
 
-        // Update stats
-        setStats((prev) => ({
-          ...prev,
-          successfulLanded: prev.successfulLanded + 1,
-          swishes: result.type === 'swish' ? prev.swishes + 1 : prev.swishes,
-          totalTeaLeaves: prev.totalTeaLeaves + leavesEarned,
-          bestStreak: Math.max(prev.bestStreak, newStreak),
-        }));
+        // Level Progression check
+        const nextLanded = landedInLevel + 1;
+        if (nextLanded >= targetShotsForLevel) {
+          const nextLevel = level + 1;
+          const levelBonusLeaves = nextLevel * 3; // Rebalanced Level Bonus (3 leaves * level)
+
+          setLevel(nextLevel);
+          setLandedInLevel(0);
+          setTeaLeavesEarnedSession((prev) => prev + levelBonusLeaves);
+
+          sound.playLevelUp();
+
+          // Get level theme obstacle hint text
+          const themeNames: Record<EnvironmentTheme, string> = {
+            kitchen: 'Kitchen Cat Paw & Toaster',
+            office: 'Paper Airplane & Desk Lamp',
+            teahouse: 'Paper Lantern & Bonsai Branch',
+            porch: 'Hummingbird & Hanging Plant',
+          };
+
+          setLevelUpToast(`LEVEL ${nextLevel}! Mug further away + ${themeNames[stats.selectedTheme]}! (+${levelBonusLeaves} 🍃)`);
+
+          setTimeout(() => {
+            setLevelUpToast(null);
+          }, 4200);
+
+          // Update stats with bonus leaves
+          setStats((prev) => ({
+            ...prev,
+            successfulLanded: prev.successfulLanded + 1,
+            swishes: result.type === 'swish' ? prev.swishes + 1 : prev.swishes,
+            totalTeaLeaves: prev.totalTeaLeaves + leavesEarned + levelBonusLeaves,
+            bestStreak: Math.max(prev.bestStreak, newStreak),
+          }));
+        } else {
+          setLandedInLevel(nextLanded);
+
+          // Update stats standard
+          setStats((prev) => ({
+            ...prev,
+            successfulLanded: prev.successfulLanded + 1,
+            swishes: result.type === 'swish' ? prev.swishes + 1 : prev.swishes,
+            totalTeaLeaves: prev.totalTeaLeaves + leavesEarned,
+            bestStreak: Math.max(prev.bestStreak, newStreak),
+          }));
+        }
 
         // Check Achievements
         setAchievements((prevAchs) =>
@@ -204,8 +258,11 @@ export default function App() {
   const handleRestart = useCallback(() => {
     setScore(0);
     setStreak(0);
-    setLives(3);
+    setLives(5);
     setTimeLeft(60);
+    setLevel(1);
+    setLandedInLevel(0);
+    setLevelUpToast(null);
     setIsGameOver(false);
     setIsPlaying(true);
     setIsNewHighScore(false);
@@ -219,8 +276,11 @@ export default function App() {
     setGameMode(mode);
     setScore(0);
     setStreak(0);
-    setLives(3);
+    setLives(5);
     setTimeLeft(60);
+    setLevel(1);
+    setLandedInLevel(0);
+    setLevelUpToast(null);
     setIsGameOver(false);
     setIsPlaying(true);
     setIsNewHighScore(false);
@@ -272,6 +332,74 @@ export default function App() {
     setStats((prev) => ({ ...prev, soundEnabled: !prev.soundEnabled }));
   };
 
+  // Scrunch Tea Bag Slider Change (0% to 100%) - Costs Earned Tea Leaves (1% starts at 50 Leaves, +1 Leaf per additional %)
+  const handleScrunchChange = useCallback(
+    (targetPercent: number) => {
+      const clampedTarget = Math.min(100, Math.max(0, Math.round(targetPercent)));
+
+      if (clampedTarget === scrunchLevel) return;
+
+      if (clampedTarget > scrunchLevel) {
+        // Cost formula: 0% = 0 Leaves. 1% = 50 Leaves. Each additional % = +1 Leaf.
+        const currentCost = scrunchLevel <= 0 ? 0 : 50 + (scrunchLevel - 1);
+        const targetCost = clampedTarget <= 0 ? 0 : 50 + (clampedTarget - 1);
+        const leavesNeeded = targetCost - currentCost;
+
+        if (stats.totalTeaLeaves < leavesNeeded) {
+          sound.playFail();
+          // Calculate max scrunch level player can afford
+          const budget = currentCost + stats.totalTeaLeaves;
+          let maxAffordablePercent = 0;
+          if (budget >= 50) {
+            maxAffordablePercent = Math.min(100, budget - 49);
+          }
+
+          if (maxAffordablePercent > scrunchLevel) {
+            const actualCost = (50 + (maxAffordablePercent - 1)) - currentCost;
+            setScrunchLevel(maxAffordablePercent);
+            setStats((prev) => ({
+              ...prev,
+              totalTeaLeaves: prev.totalTeaLeaves - actualCost,
+              scrunchLevel: maxAffordablePercent,
+            }));
+            sound.playScrunch();
+            setLevelUpToast(`🍃 Scrunched to ${maxAffordablePercent}% using ${actualCost} Tea Leaves! (Need ${leavesNeeded} for ${clampedTarget}%)`);
+          } else {
+            if (scrunchLevel === 0) {
+              setLevelUpToast(`🍃 Need 50 Tea Leaves to start scrunching (1%)! (You have ${stats.totalTeaLeaves} 🍃)`);
+            } else {
+              setLevelUpToast(`🍃 Need ${leavesNeeded} Tea Leaves to scrunch to ${clampedTarget}%! (You have ${stats.totalTeaLeaves} 🍃)`);
+            }
+          }
+
+          setTimeout(() => setLevelUpToast(null), 3200);
+          return;
+        }
+
+        // Has enough leaves!
+        setScrunchLevel(clampedTarget);
+        setStats((prev) => ({
+          ...prev,
+          totalTeaLeaves: prev.totalTeaLeaves - leavesNeeded,
+          scrunchLevel: clampedTarget,
+        }));
+
+        sound.playScrunch();
+        setLevelUpToast(`🍃 Scrunched to ${clampedTarget}%! Used ${leavesNeeded} 🍃 Tea Leaves`);
+        setTimeout(() => setLevelUpToast(null), 2500);
+      } else {
+        // Reducing scrunch level is free
+        setScrunchLevel(clampedTarget);
+        setStats((prev) => ({
+          ...prev,
+          scrunchLevel: clampedTarget,
+        }));
+        sound.playScrunch();
+      }
+    },
+    [scrunchLevel, stats.totalTeaLeaves]
+  );
+
   // Current Selected Equipment Objects
   const selectedTeaObj = TEA_TYPES.find((t) => t.id === stats.selectedTea) || TEA_TYPES[0];
   const selectedMugObj = MUG_TYPES.find((m) => m.id === stats.selectedMug) || MUG_TYPES[0];
@@ -280,6 +408,16 @@ export default function App() {
     <div className="w-screen h-screen bg-stone-950 text-white flex flex-col justify-between overflow-hidden select-none font-sans">
       {/* Top Main Game Canvas Area */}
       <div className="relative flex-1 w-full h-full overflow-hidden">
+        {/* Level Up Banner Toast Overlay */}
+        {levelUpToast && (
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none w-11/12 max-w-md animate-bounce">
+            <div className="bg-amber-500/95 backdrop-blur-md text-stone-950 font-black px-4 py-2.5 rounded-2xl border-2 border-amber-300 shadow-2xl text-center text-xs sm:text-sm tracking-wide flex items-center justify-center gap-2">
+              <Sparkles className="w-5 h-5 text-stone-900 shrink-0" />
+              <span>{levelUpToast}</span>
+            </div>
+          </div>
+        )}
+
         {/* HUD Overlay */}
         <HUD
           score={score}
@@ -293,6 +431,11 @@ export default function App() {
           selectedMug={selectedMugObj}
           teaLeaves={stats.totalTeaLeaves}
           soundEnabled={stats.soundEnabled}
+          level={level}
+          landedInLevel={landedInLevel}
+          targetShotsForLevel={targetShotsForLevel}
+          scrunchLevel={scrunchLevel}
+          onScrunchChange={handleScrunchChange}
           onToggleSound={handleToggleSound}
           onOpenShop={() => setIsShopOpen(true)}
           onOpenStats={() => setIsStatsOpen(true)}
@@ -307,6 +450,8 @@ export default function App() {
           selectedTea={selectedTeaObj}
           selectedMug={selectedMugObj}
           wind={wind}
+          level={level}
+          scrunchLevel={scrunchLevel}
           isPlaying={isPlaying && !isGameOver}
           onShotComplete={handleShotComplete}
           onWindChangeNeeded={randomizeWind}
@@ -315,64 +460,66 @@ export default function App() {
       </div>
 
       {/* Bottom Game Mode Bar */}
-      <div className="bg-stone-900 border-t border-stone-800 p-2 sm:p-3 flex items-center justify-center gap-2 z-20 overflow-x-auto shrink-0">
+      <div className="bg-stone-950/90 backdrop-blur-md border-t border-stone-800/80 px-2 py-1.5 sm:px-3 flex items-center justify-center gap-1.5 z-20 overflow-x-auto shrink-0">
         <button
           onClick={() => handleSelectMode('classic')}
-          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shrink-0 ${
+          className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition shrink-0 ${
             gameMode === 'classic'
-              ? 'bg-amber-500 text-stone-950 shadow-lg scale-105'
-              : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+              ? 'bg-amber-500 text-stone-950 shadow'
+              : 'bg-stone-800/80 text-stone-300 hover:bg-stone-700'
           }`}
         >
-          <Coffee className="w-4 h-4" />
-          <span>Classic (3 Lives)</span>
+          <Coffee className="w-3.5 h-3.5" />
+          <span>Classic</span>
         </button>
 
         <button
           onClick={() => handleSelectMode('timed')}
-          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shrink-0 ${
+          className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition shrink-0 ${
             gameMode === 'timed'
-              ? 'bg-amber-500 text-stone-950 shadow-lg scale-105'
-              : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+              ? 'bg-amber-500 text-stone-950 shadow'
+              : 'bg-stone-800/80 text-stone-300 hover:bg-stone-700'
           }`}
         >
-          <Timer className="w-4 h-4" />
-          <span>60s Timed Challenge</span>
+          <Timer className="w-3.5 h-3.5" />
+          <span>60s Timed</span>
         </button>
 
         <button
           onClick={() => handleSelectMode('precision')}
-          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shrink-0 ${
+          className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition shrink-0 ${
             gameMode === 'precision'
-              ? 'bg-amber-500 text-stone-950 shadow-lg scale-105'
-              : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+              ? 'bg-amber-500 text-stone-950 shadow'
+              : 'bg-stone-800/80 text-stone-300 hover:bg-stone-700'
           }`}
         >
-          <Target className="w-4 h-4" />
-          <span>Precision (Moving Mug)</span>
+          <Target className="w-3.5 h-3.5" />
+          <span>Precision</span>
         </button>
 
         <button
           onClick={() => handleSelectMode('zen')}
-          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shrink-0 ${
+          className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition shrink-0 ${
             gameMode === 'zen'
-              ? 'bg-emerald-500 text-stone-950 shadow-lg scale-105'
-              : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+              ? 'bg-emerald-500 text-stone-950 shadow'
+              : 'bg-stone-800/80 text-stone-300 hover:bg-stone-700'
           }`}
         >
-          <Sparkles className="w-4 h-4" />
-          <span>Zen Practice</span>
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>Zen</span>
         </button>
+
+        <div className="h-4 w-px bg-stone-800 mx-0.5 shrink-0" />
 
         <button
           onClick={() => {
             sound.playClick();
             handleRestart();
           }}
-          className="p-2 bg-stone-800 hover:bg-stone-700 text-stone-300 rounded-xl transition ml-2"
+          className="p-1 bg-stone-800/80 hover:bg-stone-700 text-stone-300 rounded-lg transition shrink-0"
           title="Reset Shot Position"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className="w-3.5 h-3.5" />
         </button>
       </div>
 
@@ -385,6 +532,8 @@ export default function App() {
         unlockedMugs={stats.unlockedMugs}
         selectedTeaId={stats.selectedTea}
         selectedMugId={stats.selectedMug}
+        scrunchLevel={scrunchLevel}
+        onScrunchChange={handleScrunchChange}
         onUnlockTea={handleUnlockTea}
         onUnlockMug={handleUnlockMug}
         onSelectTea={handleSelectTea}

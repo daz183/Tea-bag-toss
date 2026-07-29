@@ -11,11 +11,14 @@ export const TEA_TYPES: TeaType[] = [
     unlocked: true,
     price: 0,
     scoreMultiplier: 1.0,
+    weightLabel: 'Standard Balanced',
+    gravity: 0.38,
+    windSensitivity: 1.0,
   },
   {
     id: 'chamomile',
     name: 'Sleepy Chamomile',
-    flavorText: 'Calming herbal blend that leaves a soft floral breeze trail.',
+    flavorText: 'Calming floaty herbal blend. High soft arc, sensitive to wind gusts.',
     bagColor: '#eab308', // Gold tag
     teaColor: '#fef08a', // Pale yellow tea
     particleColor: '#fef9c3',
@@ -23,11 +26,14 @@ export const TEA_TYPES: TeaType[] = [
     price: 150,
     scoreMultiplier: 1.25,
     specialEffect: 'leaves',
+    weightLabel: 'Floaty Light (0.30g)',
+    gravity: 0.30,
+    windSensitivity: 1.3,
   },
   {
     id: 'matcha_green',
     name: 'Zen Matcha Green',
-    flavorText: 'Vibrant green tea bag with extra accuracy and green glow.',
+    flavorText: 'Vibrant matcha powder bag. Steady arc with extra green glow.',
     bagColor: '#16a34a', // Emerald tag
     teaColor: '#15803d', // Dark green tea
     particleColor: '#4ade80',
@@ -35,11 +41,14 @@ export const TEA_TYPES: TeaType[] = [
     price: 300,
     scoreMultiplier: 1.5,
     specialEffect: 'glow',
+    weightLabel: 'Smooth Medium (0.36g)',
+    gravity: 0.36,
+    windSensitivity: 0.85,
   },
   {
     id: 'english_breakfast',
     name: 'Royal English Breakfast',
-    flavorText: 'Strong black tea with royal golden crest and sparkling trails.',
+    flavorText: 'Dense royal black tea blend. Heavy drop that cuts right through crosswinds!',
     bagColor: '#1e3a8a', // Royal blue tag
     teaColor: '#451a03', // Deep copper tea
     particleColor: '#fcd34d',
@@ -47,11 +56,14 @@ export const TEA_TYPES: TeaType[] = [
     price: 500,
     scoreMultiplier: 2.0,
     specialEffect: 'sparkles',
+    weightLabel: 'Dense Heavyweight (0.46g)',
+    gravity: 0.46,
+    windSensitivity: 0.6,
   },
   {
     id: 'mint_breeze',
     name: 'Ice Mint Breeze',
-    flavorText: 'Cool peppermint leaves with frosty particles in mid-air.',
+    flavorText: 'Ultra-light peppermint leaves. Long gliding trajectory with icy trails.',
     bagColor: '#06b6d4', // Cyan tag
     teaColor: '#a5f3fc', // Cool blue-green tea
     particleColor: '#cffaff',
@@ -59,6 +71,9 @@ export const TEA_TYPES: TeaType[] = [
     price: 800,
     scoreMultiplier: 2.5,
     specialEffect: 'mint',
+    weightLabel: 'Featherweight (0.28g)',
+    gravity: 0.28,
+    windSensitivity: 1.5,
   },
 ];
 

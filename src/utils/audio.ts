@@ -234,6 +234,62 @@ class SoundManager {
     }
   }
 
+  // Scrunch paper sound effect
+  public playScrunch() {
+    if (!this.soundEnabled) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      const bufferSize = this.ctx.sampleRate * 0.18;
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const output = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        output[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 1.5);
+      }
+
+      const whiteNoise = this.ctx.createBufferSource();
+      whiteNoise.buffer = buffer;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.setValueAtTime(1500, now);
+      filter.frequency.exponentialRampToValueAtTime(3500, now + 0.15);
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.35, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+
+      whiteNoise.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      whiteNoise.start(now);
+
+      // Add a couple quick crisp pops for paper crinkles
+      [0.02, 0.06, 0.11].forEach((delay, idx) => {
+        if (!this.ctx) return;
+        const pop = this.ctx.createOscillator();
+        const popGain = this.ctx.createGain();
+        pop.type = 'sine';
+        pop.frequency.setValueAtTime(800 + idx * 300, now + delay);
+        pop.frequency.exponentialRampToValueAtTime(200, now + delay + 0.03);
+
+        popGain.gain.setValueAtTime(0.2, now + delay);
+        popGain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.03);
+
+        pop.connect(popGain);
+        popGain.connect(this.ctx.destination);
+
+        pop.start(now + delay);
+        pop.stop(now + delay + 0.03);
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
   // Item Unlock Celebration Sound
   public playUnlock() {
     if (!this.soundEnabled) return;
@@ -258,6 +314,64 @@ class SoundManager {
 
         osc.start(now + i * 0.08);
         osc.stop(now + i * 0.08 + 0.4);
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
+  // Low error / fail buzz sound
+  public playFail() {
+    if (!this.soundEnabled) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(160, now);
+      osc.frequency.setValueAtTime(120, now + 0.1);
+
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.22);
+    } catch {
+      // Ignore
+    }
+  }
+
+  // Level Up Fanfare
+  public playLevelUp() {
+    if (!this.soundEnabled) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      const notes = [392, 523.25, 659.25, 783.99, 1046.50]; // G4, C5, E5, G5, C6
+      notes.forEach((freq, i) => {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now + i * 0.09);
+
+        gain.gain.setValueAtTime(0.25, now + i * 0.09);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.09 + 0.45);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(now + i * 0.09);
+        osc.stop(now + i * 0.09 + 0.45);
       });
     } catch {
       // Ignore
