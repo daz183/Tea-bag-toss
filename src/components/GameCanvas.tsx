@@ -1616,17 +1616,17 @@ function getObstaclesForLevelAndTheme(
       });
     }
   } else if (theme === 'teahouse') {
-    // Level 2+: Swaying Paper Lantern hanging in front of mug
+    // Level 2+: Swaying Paper Lantern hanging well above mug
     if (level >= 2) {
       const lanternSpeed = 0.7 + (level - 2) * 0.35;
-      const lanternX = width * 0.5 + Math.sin(time * 0.9 * lanternSpeed) * (20 + (level - 2) * 12);
-      const lanternY = mugY - 24 + Math.abs(Math.cos(time * 0.9 * lanternSpeed)) * (8 + (level - 2) * 4);
+      const lanternX = width * 0.5 + Math.sin(time * 0.9 * lanternSpeed) * (30 + (level - 2) * 12);
+      const lanternY = mugY - 95 + Math.abs(Math.cos(time * 0.9 * lanternSpeed)) * (8 + (level - 2) * 4);
       obstacles.push({
         id: 'lantern',
         type: 'lantern',
         x: lanternX,
         y: lanternY,
-        radius: 26 + (level - 2) * 3,
+        radius: 24 + (level - 2) * 3,
         label: '🏮 LANTERN SWAY BOUNCE!',
         rotation: Math.sin(time * 0.9 * lanternSpeed) * 0.15,
       });
@@ -2066,6 +2066,14 @@ function drawObstacles(ctx: CanvasRenderingContext2D, obstacles: CanvasObstacle[
       ctx.stroke();
     } else if (obs.type === 'lantern') {
       // Teahouse Crimson Paper Lantern
+      // Hanging cord extending upward
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -28);
+      ctx.lineTo(0, -120);
+      ctx.stroke();
+
       ctx.fillStyle = '#dc2626';
       ctx.beginPath();
       ctx.ellipse(0, 0, 22, 28, 0, 0, Math.PI * 2);
