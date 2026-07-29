@@ -2,7 +2,7 @@
   "name": "Tea Bag Toss",
   "short_name": "TeaBagToss",
   "description": "A fun tea bag tossing web game.",
-  "start_url": "https://daz183.github.io/Tea-bag-toss/",
+  "start_url": "/Tea-bag-toss/",
   "scope": "/Tea-bag-toss/",
   "display": "standalone",
   "orientation": "any",
