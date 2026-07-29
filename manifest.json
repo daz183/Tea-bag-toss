@@ -1,11 +1,26 @@
 {
-  "background_color": "#ffffff",
-  "dir": "ltr",
-  "display": "standalone",
-  "name": "Tea bag toss",
-  "orientation": "any",
-  "scope": "/Tea-bag-toss/",
-  "short_name": "Tbt",
+  "name": "Tea Bag Toss",
+  "short_name": "TeaBagToss",
+  "description": "A fun tea bag tossing web game.",
   "start_url": "https://daz183.github.io/Tea-bag-toss/",
-  "theme_color": "#ffffff"
+  "scope": "/Tea-bag-toss/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://via.placeholder.com/512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
 }
