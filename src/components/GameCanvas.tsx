@@ -2294,6 +2294,17 @@ function computeFlickVector(
     vy = dragVy;
   }
 
+  // Soft-cap / compress velocity scale to prevent quadratic peak-height explosions (h = v^2 / 2g)
+  // Ensures gentle flicks reach the mug while fast flicks remain safely on-screen.
+  const rawSpeed = Math.hypot(vx, vy);
+  if (rawSpeed > 0) {
+    // Compress speed using power curve (e.g. speed^0.75)
+    const compressedSpeed = Math.min(19.5, Math.pow(rawSpeed, 0.78) * 1.8);
+    const scale = compressedSpeed / rawSpeed;
+    vx *= scale;
+    vy *= scale;
+  }
+
   return { vx, vy, speed: Math.hypot(vx, vy) };
 }
 
