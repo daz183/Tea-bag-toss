@@ -2,8 +2,8 @@
   "name": "Tea Bag Toss",
   "short_name": "TeaBagToss",
   "description": "A fun tea bag tossing web game.",
-  "start_url": "/Tea-bag-toss/",
-  "scope": "/Tea-bag-toss/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#ffffff",
@@ -11,13 +11,13 @@
   "dir": "ltr",
   "icons": [
     {
-      "src": "/Tea-bag-toss/icon-192.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/Tea-bag-toss/icon-512.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
