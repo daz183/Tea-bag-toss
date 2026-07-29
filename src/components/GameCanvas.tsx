@@ -1619,14 +1619,14 @@ function getObstaclesForLevelAndTheme(
     // Level 2+: Swaying Paper Lantern hanging well above mug
     if (level >= 2) {
       const lanternSpeed = 0.7 + (level - 2) * 0.35;
-      const lanternX = width * 0.5 + Math.sin(time * 0.9 * lanternSpeed) * (30 + (level - 2) * 12);
-      const lanternY = mugY - 95 + Math.abs(Math.cos(time * 0.9 * lanternSpeed)) * (8 + (level - 2) * 4);
+      const lanternX = width * 0.5 + Math.sin(time * 0.9 * lanternSpeed) * (35 + (level - 2) * 12);
+      const lanternY = mugY - 160 + Math.abs(Math.cos(time * 0.9 * lanternSpeed)) * (8 + (level - 2) * 4);
       obstacles.push({
         id: 'lantern',
         type: 'lantern',
         x: lanternX,
         y: lanternY,
-        radius: 24 + (level - 2) * 3,
+        radius: 22 + (level - 2) * 3,
         label: '🏮 LANTERN SWAY BOUNCE!',
         rotation: Math.sin(time * 0.9 * lanternSpeed) * 0.15,
       });
@@ -2071,7 +2071,7 @@ function drawObstacles(ctx: CanvasRenderingContext2D, obstacles: CanvasObstacle[
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(0, -28);
-      ctx.lineTo(0, -120);
+      ctx.lineTo(0, -250);
       ctx.stroke();
 
       ctx.fillStyle = '#dc2626';
