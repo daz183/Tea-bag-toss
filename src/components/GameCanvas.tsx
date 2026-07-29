@@ -1491,31 +1491,66 @@ function getObstaclesForLevelAndTheme(
   if (theme === 'kitchen') {
     // Level 2+: Playful Cat Paw swiping in front of mug
     if (level >= 2) {
-      const pawSpeed = 0.75 + (level - 2) * 0.35;
-      const pawOffset = Math.sin(time * 1.3 * pawSpeed) * (20 + (level - 2) * 12);
+      const pawSpeed = 0.7 + (level - 2) * 0.3;
+      // Drifts wider horizontally back and forward relative to mug
+      const sweepRange = width * (0.15 + (level - 2) * 0.03);
+      const pawX = width * 0.54 + Math.sin(time * 1.1 * pawSpeed) * sweepRange;
+      const pawY = mugY + 20 + Math.cos(time * 1.1 * pawSpeed) * (18 + (level - 2) * 6);
       obstacles.push({
         id: 'cat_paw',
         type: 'cat_paw',
-        x: width * 0.62 + pawOffset * 0.3,
-        y: mugY + 30 + pawOffset * 0.4,
+        x: pawX,
+        y: pawY,
         radius: 26 + (level - 2) * 3,
         label: '🐱 CAT PAW DEFLECTION!',
-        rotation: Math.sin(time * 1.3 * pawSpeed) * 0.18,
+        rotation: Math.sin(time * 1.1 * pawSpeed) * 0.3,
       });
     }
-    // Level 3+: Popping Toaster sitting in foreground
+    // Level 3+: Popping Toaster sitting stationary on countertop
     if (level >= 3) {
-      const toastSpeed = 0.8 + (level - 3) * 0.35;
-      const toastPop = Math.max(0, Math.sin(time * 1.3 * toastSpeed)) * (28 + (level - 3) * 12);
+      const toastSpeed = 0.7 + (level - 3) * 0.25;
+      const toasterX = width * 0.32;
+      const toasterY = mugY + 18;
+
+      // Cycle timer for popping toast: 0 to 1 = flying arc in air, 1 to 1.7 = reloading inside toaster
+      const period = Math.PI * 2;
+      const cycle = (time * 1.3 * toastSpeed) % period;
+      const flyDuration = period * 0.62; // ~62% of the cycle in the air
+
+      const isFlying = cycle < flyDuration;
+      const toastProgress = isFlying ? cycle / flyDuration : 0; // 0.0 -> 1.0 during flight
+
+      // Parabolic Arc Math across countertop over mug
+      const flightDistance = width * 0.38; // Distance across counter over the mug
+      const toastX = toasterX + toastProgress * flightDistance;
+      const arcHeight = 110 + (level - 3) * 20; // High peak over the mug
+      const toastY = (toasterY - 14) - 4 * arcHeight * toastProgress * (1 - toastProgress);
+      const toastRotation = toastProgress * Math.PI * 2.2; // Smooth 360 flip in mid-air
+
+      // 1. Stationary Toaster Base
       obstacles.push({
         id: 'toaster',
         type: 'toaster',
-        x: width * 0.35,
-        y: mugY + 18 - toastPop * 0.4,
-        radius: 24 + (level - 3) * 3,
-        label: '🍞 TOAST BOUNCE!',
-        extraData: { toastPop },
+        x: toasterX,
+        y: toasterY,
+        radius: 24,
+        label: '🍞 TOASTER BOUNCE!',
+        extraData: { isFlying, toastProgress },
       });
+
+      // 2. Flying Toast Slice Obstacle (mid-air parabolic arc over mug)
+      if (isFlying) {
+        obstacles.push({
+          id: 'flying_toast',
+          type: 'flying_toast',
+          x: toastX,
+          y: toastY,
+          radius: 19,
+          label: '🍞 FLYING TOAST DEFLECTION!',
+          rotation: toastRotation,
+          extraData: { toastProgress },
+        });
+      }
     }
     // Level 4+: Ceiling Fan
     if (level >= 4) {
@@ -1657,7 +1692,23 @@ function drawObstacles(ctx: CanvasRenderingContext2D, obstacles: CanvasObstacle[
         ctx.fill();
       });
     } else if (obs.type === 'toaster') {
-      // Retro silver Toaster
+      const isFlying = obs.extraData?.isFlying;
+
+      // When reloading inside toaster, draw a little bread slice peeking out slot
+      if (!isFlying) {
+        ctx.fillStyle = '#d97706'; // Golden toast crust
+        ctx.beginPath();
+        ctx.roundRect(-13, -17, 26, 12, 4);
+        ctx.fill();
+        ctx.strokeStyle = '#92400e';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.fillStyle = '#fef3c7';
+        ctx.fillRect(-10, -15, 20, 7);
+      }
+
+      // Retro silver Toaster Body (Stays completely stationary)
       ctx.fillStyle = '#cbd5e1';
       ctx.beginPath();
       ctx.roundRect(-24, -18, 48, 36, 8);
@@ -1666,20 +1717,57 @@ function drawObstacles(ctx: CanvasRenderingContext2D, obstacles: CanvasObstacle[
       ctx.lineWidth = 2;
       ctx.stroke();
 
+      // Chrome highlight strip
+      ctx.fillStyle = '#f1f5f9';
+      ctx.fillRect(-22, -16, 44, 3);
+
       // Toaster slot
       ctx.fillStyle = '#1e293b';
-      ctx.fillRect(-18, -16, 36, 4);
+      ctx.fillRect(-18, -14, 36, 4);
 
-      // Toast slice popping up
-      if (obs.extraData?.toastPop > 2) {
-        ctx.fillStyle = '#d97706'; // Golden toast
-        ctx.beginPath();
-        ctx.roundRect(-14, -28 - obs.extraData.toastPop * 0.3, 28, 22, 5);
-        ctx.fill();
-        ctx.strokeStyle = '#b45309';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
+      // Front Dial & Power Light
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(10, 4, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Red LED Indicator (glows vibrant red when launching toast)
+      ctx.fillStyle = isFlying ? '#ef4444' : '#64748b';
+      ctx.beginPath();
+      ctx.arc(-12, 4, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Side lever (pressed down when loading toast, pops up during launch)
+      const leverY = isFlying ? -10 : 4;
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(-28, leverY, 5, 4);
+    } else if (obs.type === 'flying_toast') {
+      // Golden Toast Slice flying along parabolic arc over mug!
+      ctx.fillStyle = '#d97706'; // Golden crust
+      ctx.beginPath();
+      ctx.roundRect(-14, -12, 28, 24, 6);
+      ctx.fill();
+      ctx.strokeStyle = '#92400e';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Inner soft bread core
+      ctx.fillStyle = '#fef3c7';
+      ctx.beginPath();
+      ctx.roundRect(-10, -8, 20, 16, 4);
+      ctx.fill();
+
+      // Yellow pat of butter
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.roundRect(-4, -3, 8, 6, 1);
+      ctx.fill();
+
+      // Warm glow around flying toast
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.25)';
+      ctx.beginPath();
+      ctx.arc(0, 0, 18, 0, Math.PI * 2);
+      ctx.fill();
     } else if (obs.type === 'fan') {
       // Spinning Fan
       ctx.fillStyle = 'rgba(255,255,255,0.2)';
@@ -2411,11 +2499,11 @@ function drawFlickHint(ctx: CanvasRenderingContext2D, bagX: number, bagY: number
   ctx.save();
   ctx.translate(bagX + 28, bagY - 44 + offsetY);
 
-  const w = 118;
+  const w = 156;
   const h = 26;
   const r = 13;
 
-  ctx.fillStyle = 'rgba(28, 25, 23, 0.85)';
+  ctx.fillStyle = 'rgba(28, 25, 23, 0.88)';
   ctx.strokeStyle = '#f59e0b';
   ctx.lineWidth = 1.5;
 
@@ -2434,10 +2522,10 @@ function drawFlickHint(ctx: CanvasRenderingContext2D, bagX: number, bagY: number
   ctx.stroke();
 
   ctx.fillStyle = '#fef3c7';
-  ctx.font = 'bold 11px sans-serif';
+  ctx.font = 'bold 10.5px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('FLICK TO THROW ↗', 0, 1);
+  ctx.fillText('FLICK OR PULL BACK 🎯', 0, 1);
 
   ctx.restore();
 }

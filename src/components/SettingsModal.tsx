@@ -86,7 +86,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   1
                 </div>
                 <div>
-                  <strong className="text-amber-200">Flick to Throw:</strong> Touch/Click near the tea bag and swipe/flick forward across the screen in the direction you want to throw the tea bag!
+                  <strong className="text-amber-200">Two Ways to Throw:</strong> You can either <strong>Flick/Swipe Up</strong> forward across the screen, or <strong>Pull Down & Release</strong> like a slingshot to launch the tea bag toward the mug!
                 </div>
               </div>
 

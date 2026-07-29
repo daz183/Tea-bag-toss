@@ -19,6 +19,7 @@ interface HUDProps {
   landedInLevel: number;
   targetShotsForLevel: number;
   scrunchLevel?: number;
+  scrunchTurnsLeft?: number;
   onScrunchChange: (level: number) => void;
   onToggleSound: () => void;
   onOpenShop: () => void;
@@ -43,6 +44,7 @@ export const HUD: React.FC<HUDProps> = ({
   landedInLevel,
   targetShotsForLevel,
   scrunchLevel = 0,
+  scrunchTurnsLeft = 0,
   onScrunchChange,
   onToggleSound,
   onOpenShop,
@@ -60,9 +62,9 @@ export const HUD: React.FC<HUDProps> = ({
   const windDirText = wind.speed === 0 ? 'CALM' : wind.direction > 0 ? 'EAST ▶' : '◀ WEST';
   const totalMultiplier = (selectedTea.scoreMultiplier * selectedMug.bonusMultiplier).toFixed(2);
 
-  // Scrunch cost calculations: 0% = 0 Leaves. 1% = 50 Leaves. Each +1% = +1 Leaf.
-  const currentCost = scrunchLevel <= 0 ? 0 : 50 + (scrunchLevel - 1);
-  const pendingCost = pendingScrunch <= 0 ? 0 : 50 + (pendingScrunch - 1);
+  // Scrunch cost calculations: 0% = 0 Leaves. 1% = 10 Leaves. Each +1% = +1 Leaf.
+  const currentCost = scrunchLevel <= 0 ? 0 : 10 + (scrunchLevel - 1);
+  const pendingCost = pendingScrunch <= 0 ? 0 : 10 + (pendingScrunch - 1);
   const costToApply = pendingScrunch > scrunchLevel ? pendingCost - currentCost : 0;
   const canAfford = teaLeaves >= costToApply;
   const isChanged = pendingScrunch !== scrunchLevel;
@@ -134,7 +136,14 @@ export const HUD: React.FC<HUDProps> = ({
             title="Adjust Aerodynamic Scrunch Level"
           >
             <Sliders className="w-3.5 h-3.5 shrink-0" />
-            <span>Scrunch: <strong className="font-mono">{scrunchLevel}%</strong></span>
+            <span>
+              Scrunch: <strong className="font-mono">{scrunchLevel}%</strong>
+              {scrunchLevel > 0 && (
+                <span className="ml-1 text-[10px] font-mono bg-stone-900/30 px-1 py-0.2 rounded font-black text-amber-950">
+                  ({scrunchTurnsLeft}t)
+                </span>
+              )}
+            </span>
           </button>
 
           {/* Scrunch Centered Modal */}
@@ -152,6 +161,16 @@ export const HUD: React.FC<HUDProps> = ({
                   >
                     <X className="w-4 h-4" />
                   </button>
+                </div>
+
+                {/* Duration Limit Banner */}
+                <div className="text-[11px] font-mono mb-3 bg-amber-950/60 border border-amber-500/30 rounded-lg px-2.5 py-1.5 flex items-center justify-between text-amber-200">
+                  <span>⏳ Duration: 10 turns per application</span>
+                  {scrunchLevel > 0 && (
+                    <span className="font-bold text-amber-400 bg-amber-900/80 px-1.5 py-0.5 rounded text-[10px]">
+                      {scrunchTurnsLeft}/10 turns left
+                    </span>
+                  )}
                 </div>
 
                 {/* Status Info */}
@@ -197,7 +216,7 @@ export const HUD: React.FC<HUDProps> = ({
                           : 'bg-stone-800 text-stone-300 hover:bg-stone-700 border border-stone-700'
                       }`}
                     >
-                      {preset === 0 ? '0% (Free)' : preset === 50 ? '50% (99🍃)' : '100% (149🍃)'}
+                      {preset === 0 ? '0% (Free)' : preset === 50 ? '50% (59🍃)' : '100% (109🍃)'}
                     </button>
                   ))}
                 </div>

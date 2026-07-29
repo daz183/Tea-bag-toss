@@ -67,6 +67,9 @@ export default function App() {
   });
 
   const [scrunchLevel, setScrunchLevel] = useState<number>(stats.scrunchLevel ?? 0);
+  const [scrunchTurnsLeft, setScrunchTurnsLeft] = useState<number>(() => {
+    return (stats.scrunchLevel ?? 0) > 0 ? 10 : 0;
+  });
 
   // Achievements
   const [achievements, setAchievements] = useState<Achievement[]>(INITIAL_ACHIEVEMENTS);
@@ -153,6 +156,22 @@ export default function App() {
         ...prev,
         totalThrows: prev.totalThrows + 1,
       }));
+
+      // Turn counter for active Scrunch (lasts for 10 turns)
+      if (scrunchLevel > 0) {
+        setScrunchTurnsLeft((prevTurns) => {
+          const nextTurns = prevTurns - 1;
+          if (nextTurns <= 0) {
+            setScrunchLevel(0);
+            setStats((prev) => ({ ...prev, scrunchLevel: 0 }));
+            sound.playScrunch();
+            setLevelUpToast('🍃 Scrunch wore off after 10 turns! (Tea bag un-scrunched)');
+            setTimeout(() => setLevelUpToast(null), 3000);
+            return 0;
+          }
+          return nextTurns;
+        });
+      }
 
       if (result.type === 'swish' || result.type === 'landed') {
         const newScore = score + result.scoreGained;
@@ -340,9 +359,9 @@ export default function App() {
       if (clampedTarget === scrunchLevel) return;
 
       if (clampedTarget > scrunchLevel) {
-        // Cost formula: 0% = 0 Leaves. 1% = 50 Leaves. Each additional % = +1 Leaf.
-        const currentCost = scrunchLevel <= 0 ? 0 : 50 + (scrunchLevel - 1);
-        const targetCost = clampedTarget <= 0 ? 0 : 50 + (clampedTarget - 1);
+        // Cost formula: 0% = 0 Leaves. 1% = 10 Leaves. Each additional % = +1 Leaf.
+        const currentCost = scrunchLevel <= 0 ? 0 : 10 + (scrunchLevel - 1);
+        const targetCost = clampedTarget <= 0 ? 0 : 10 + (clampedTarget - 1);
         const leavesNeeded = targetCost - currentCost;
 
         if (stats.totalTeaLeaves < leavesNeeded) {
@@ -350,23 +369,24 @@ export default function App() {
           // Calculate max scrunch level player can afford
           const budget = currentCost + stats.totalTeaLeaves;
           let maxAffordablePercent = 0;
-          if (budget >= 50) {
-            maxAffordablePercent = Math.min(100, budget - 49);
+          if (budget >= 10) {
+            maxAffordablePercent = Math.min(100, budget - 9);
           }
 
           if (maxAffordablePercent > scrunchLevel) {
-            const actualCost = (50 + (maxAffordablePercent - 1)) - currentCost;
+            const actualCost = (10 + (maxAffordablePercent - 1)) - currentCost;
             setScrunchLevel(maxAffordablePercent);
+            setScrunchTurnsLeft(maxAffordablePercent > 0 ? 10 : 0);
             setStats((prev) => ({
               ...prev,
               totalTeaLeaves: prev.totalTeaLeaves - actualCost,
               scrunchLevel: maxAffordablePercent,
             }));
             sound.playScrunch();
-            setLevelUpToast(`🍃 Scrunched to ${maxAffordablePercent}% using ${actualCost} Tea Leaves! (Need ${leavesNeeded} for ${clampedTarget}%)`);
+            setLevelUpToast(`🍃 Scrunched to ${maxAffordablePercent}% for 10 turns! (Used ${actualCost} 🍃)`);
           } else {
             if (scrunchLevel === 0) {
-              setLevelUpToast(`🍃 Need 50 Tea Leaves to start scrunching (1%)! (You have ${stats.totalTeaLeaves} 🍃)`);
+              setLevelUpToast(`🍃 Need 10 Tea Leaves to start scrunching (1%)! (You have ${stats.totalTeaLeaves} 🍃)`);
             } else {
               setLevelUpToast(`🍃 Need ${leavesNeeded} Tea Leaves to scrunch to ${clampedTarget}%! (You have ${stats.totalTeaLeaves} 🍃)`);
             }
@@ -378,6 +398,7 @@ export default function App() {
 
         // Has enough leaves!
         setScrunchLevel(clampedTarget);
+        setScrunchTurnsLeft(clampedTarget > 0 ? 10 : 0);
         setStats((prev) => ({
           ...prev,
           totalTeaLeaves: prev.totalTeaLeaves - leavesNeeded,
@@ -385,11 +406,12 @@ export default function App() {
         }));
 
         sound.playScrunch();
-        setLevelUpToast(`🍃 Scrunched to ${clampedTarget}%! Used ${leavesNeeded} 🍃 Tea Leaves`);
+        setLevelUpToast(`🍃 Scrunched to ${clampedTarget}%! Active for 10 turns (${leavesNeeded} 🍃)`);
         setTimeout(() => setLevelUpToast(null), 2500);
       } else {
         // Reducing scrunch level is free
         setScrunchLevel(clampedTarget);
+        setScrunchTurnsLeft(clampedTarget > 0 ? 10 : 0);
         setStats((prev) => ({
           ...prev,
           scrunchLevel: clampedTarget,
@@ -435,6 +457,7 @@ export default function App() {
           landedInLevel={landedInLevel}
           targetShotsForLevel={targetShotsForLevel}
           scrunchLevel={scrunchLevel}
+          scrunchTurnsLeft={scrunchTurnsLeft}
           onScrunchChange={handleScrunchChange}
           onToggleSound={handleToggleSound}
           onOpenShop={() => setIsShopOpen(true)}

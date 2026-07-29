@@ -43,8 +43,8 @@ export const ShopModal: React.FC<ShopModalProps> = ({
     setPendingScrunch(scrunchLevel);
   }, [scrunchLevel]);
 
-  const currentCost = scrunchLevel <= 0 ? 0 : 50 + (scrunchLevel - 1);
-  const pendingCost = pendingScrunch <= 0 ? 0 : 50 + (pendingScrunch - 1);
+  const currentCost = scrunchLevel <= 0 ? 0 : 10 + (scrunchLevel - 1);
+  const pendingCost = pendingScrunch <= 0 ? 0 : 10 + (pendingScrunch - 1);
   const costToApply = pendingScrunch > scrunchLevel ? pendingCost - currentCost : 0;
   const canAfford = teaLeaves >= costToApply;
   const isChanged = pendingScrunch !== scrunchLevel;
@@ -298,7 +298,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                       )}
                     </h3>
                     <p className="text-xs text-stone-300 mt-1 leading-relaxed">
-                      Slide to preview your tea bag scrunch level! Starts at 50 🍃 Tea Leaves for 1%, plus 1 🍃 per additional % (100% Aero Sphere = 149 🍃). Click <strong>APPLY SCRUNCH LEVEL</strong> below to confirm and spend tea leaves.
+                      Slide to preview your tea bag scrunch level! Starts at 10 🍃 Tea Leaves for 1%, plus 1 🍃 per additional % (100% Aero Sphere = 109 🍃). Each application lasts for <strong>10 turns</strong>. Click <strong>APPLY SCRUNCH LEVEL</strong> below to confirm and spend tea leaves.
                     </p>
                   </div>
                 </div>
