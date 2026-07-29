@@ -4,7 +4,7 @@
   "display": "standalone",
   "name": "Tea bag toss",
   "orientation": "any",
-  "scope": "//Tea-bag-toss/",
+  "scope": "/Tea-bag-toss/",
   "short_name": "Tbt",
   "start_url": "https://daz183.github.io/Tea-bag-toss/",
   "theme_color": "#ffffff"
