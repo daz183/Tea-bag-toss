@@ -333,7 +333,7 @@ export const HUD: React.FC<HUDProps> = ({
       </div>
 
       {/* Bottom Sub-Bar: Mode Status & Equipment Tag */}
-      <div className="flex items-end justify-between gap-2 pointer-events-auto">
+      <div className="flex items-end justify-between gap-2 pointer-events-auto pb-1 sm:pb-2">
         {/* Mode Status Indicator */}
         <div className="bg-stone-900/85 backdrop-blur-md border border-stone-700/60 rounded-xl px-2.5 py-1 text-white shadow-lg flex items-center gap-2 text-xs">
           {gameMode === 'classic' && (

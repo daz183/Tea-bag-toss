@@ -167,6 +167,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     handleResize();
     window.addEventListener('resize', handleResize);
 
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
     // Initial setup
     const rect = containerRef.current?.getBoundingClientRect() || { width: 800, height: 600 };
     setupMugPosition(rect.width, rect.height);
@@ -525,7 +532,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       drawEnvironmentBackground(ctx, width, height, theme, animTimeRef.current);
 
       // Draw Wind FX & Fan
-      drawFanAndWind(ctx, width, height, wind, fanAngleRef.current);
+      drawFanAndWind(ctx, width, height, wind, fanAngleRef.current, theme);
 
       // Draw Table Surface with Level Perspective
       drawTable(ctx, width, height, theme, level);
@@ -625,6 +632,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     return () => {
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
     };
   }, [
     theme,
@@ -1552,7 +1560,7 @@ function getObstaclesForLevelAndTheme(
         });
       }
     }
-    // Level 4+: Ceiling Fan
+    // Level 4+: Kitchen Ceiling Exhaust Fan
     if (level >= 4) {
       obstacles.push({
         id: 'fan',
@@ -1560,8 +1568,9 @@ function getObstaclesForLevelAndTheme(
         x: width * 0.5,
         y: height * 0.26,
         radius: 38 + (level - 4) * 4,
-        label: '🌀 FAN WIND DEFLECTION!',
+        label: '🌀 KITCHEN EXHAUST FAN WIND!',
         rotation: time * (5 + (level - 4) * 2),
+        extraData: { theme: 'kitchen' },
       });
     }
   } else if (theme === 'office') {
@@ -1593,6 +1602,19 @@ function getObstaclesForLevelAndTheme(
         label: '🪑 OFFICE CHAIR REBOUND!',
       });
     }
+    // Level 4+: Executive Office Desk Fan
+    if (level >= 4) {
+      obstacles.push({
+        id: 'fan',
+        type: 'fan',
+        x: width * 0.5,
+        y: height * 0.26,
+        radius: 38 + (level - 4) * 4,
+        label: '🌀 DESK TURBO FAN WIND!',
+        rotation: time * (6 + (level - 4) * 2),
+        extraData: { theme: 'office' },
+      });
+    }
   } else if (theme === 'teahouse') {
     // Level 2+: Swaying Paper Lantern hanging in front of mug
     if (level >= 2) {
@@ -1619,6 +1641,19 @@ function getObstaclesForLevelAndTheme(
         y: mugY + 24 + Math.sin(time * 0.8 * bonsaiSpeed) * (6 + (level - 3) * 4),
         radius: 28 + (level - 3) * 3,
         label: '🪴 BONSAI BRANCH DEFLECTION!',
+      });
+    }
+    // Level 4+: Traditional Bamboo Paddle Ceiling Fan
+    if (level >= 4) {
+      obstacles.push({
+        id: 'fan',
+        type: 'fan',
+        x: width * 0.5,
+        y: height * 0.26,
+        radius: 38 + (level - 4) * 4,
+        label: '🌀 BAMBOO PADDLE FAN GUST!',
+        rotation: time * (4.5 + (level - 4) * 2),
+        extraData: { theme: 'teahouse' },
       });
     }
   } else if (theme === 'porch') {
@@ -1651,6 +1686,19 @@ function getObstaclesForLevelAndTheme(
         y: fernY,
         radius: 28 + (level - 3) * 3,
         label: '🌿 FERN VINE DEFLECTION!',
+      });
+    }
+    // Level 4+: Rustic Patio Tropical Palm Ceiling Fan
+    if (level >= 4) {
+      obstacles.push({
+        id: 'fan',
+        type: 'fan',
+        x: width * 0.5,
+        y: height * 0.26,
+        radius: 38 + (level - 4) * 4,
+        label: '🌀 PATIO TROPICAL PALM BREEZE!',
+        rotation: time * (4 + (level - 4) * 2),
+        extraData: { theme: 'porch' },
       });
     }
   }
@@ -1769,25 +1817,211 @@ function drawObstacles(ctx: CanvasRenderingContext2D, obstacles: CanvasObstacle[
       ctx.arc(0, 0, 18, 0, Math.PI * 2);
       ctx.fill();
     } else if (obs.type === 'fan') {
-      // Spinning Fan
-      ctx.fillStyle = 'rgba(255,255,255,0.2)';
-      ctx.beginPath();
-      ctx.arc(0, 0, obs.radius, 0, Math.PI * 2);
-      ctx.fill();
+      const fanTheme = obs.extraData?.theme || 'kitchen';
 
-      ctx.fillStyle = '#38bdf8';
-      for (let i = 0; i < 4; i++) {
-        ctx.rotate(Math.PI / 2);
+      if (fanTheme === 'kitchen') {
+        // --- 1. KITCHEN MODERN STAINLESS/WHITE CEILING EXHAUST FAN ---
+        // Translucent cyan/white breeze air motion blur ring
+        ctx.fillStyle = 'rgba(186, 230, 253, 0.25)';
         ctx.beginPath();
-        ctx.ellipse(0, 18, 8, 18, 0, 0, Math.PI * 2);
+        ctx.arc(0, 0, obs.radius + 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 3 Aerodynamic curved white blades with silver chrome tips
+        ctx.fillStyle = '#f8fafc';
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 1.5;
+
+        for (let i = 0; i < 3; i++) {
+          ctx.rotate((Math.PI * 2) / 3);
+          ctx.beginPath();
+          ctx.ellipse(0, 22, 10, 22, -0.15, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+
+          // Blade aerodynamic ridge line
+          ctx.strokeStyle = '#e2e8f0';
+          ctx.beginPath();
+          ctx.moveTo(0, 6);
+          ctx.lineTo(0, 38);
+          ctx.stroke();
+        }
+
+        // Center Polished Chrome Cap & Blue LED Power Indicator
+        ctx.fillStyle = '#e2e8f0';
+        ctx.strokeStyle = '#94a3b8';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 11, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#0284c7';
+        ctx.beginPath();
+        ctx.arc(0, 0, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+      } else if (fanTheme === 'office') {
+        // --- 2. OFFICE EXECUTIVE DARK STEEL DESK FAN ---
+        // Desk Fan Mounting Neck / Stand extending down
+        ctx.fillStyle = '#475569';
+        ctx.fillRect(-5, 12, 10, 28);
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(-16, 36, 32, 8);
+
+        // Dark wire protective cage grill ring
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, obs.radius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(0, 0, obs.radius - 8, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 4 Dark Translucent Matte Steel Fan Blades
+        ctx.fillStyle = '#0f172a';
+        for (let i = 0; i < 4; i++) {
+          ctx.rotate(Math.PI / 2);
+          ctx.beginPath();
+          ctx.ellipse(0, 18, 8, 18, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Wire Cage Radial Spokes
+        ctx.strokeStyle = 'rgba(71, 85, 105, 0.5)';
+        ctx.lineWidth = 1.2;
+        for (let i = 0; i < 8; i++) {
+          ctx.rotate(Math.PI / 4);
+          ctx.beginPath();
+          ctx.moveTo(0, 6);
+          ctx.lineTo(0, obs.radius);
+          ctx.stroke();
+        }
+
+        // Electric Blue Brand Center Emblem Badge
+        ctx.fillStyle = '#1e293b';
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#3b82f6';
+        ctx.beginPath();
+        ctx.arc(0, 0, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+      } else if (fanTheme === 'teahouse') {
+        // --- 3. TEAHOUSE TRADITIONAL BAMBOO & MAHOGANY PADDLE FAN ---
+        // Soft warm ambient wind aura
+        ctx.fillStyle = 'rgba(254, 240, 138, 0.18)';
+        ctx.beginPath();
+        ctx.arc(0, 0, obs.radius + 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 5 Wide Paddle-shaped Carved Bamboo / Teak Wood Blades
+        for (let i = 0; i < 5; i++) {
+          ctx.rotate((Math.PI * 2) / 5);
+
+          // Dark teak wood blade body
+          ctx.fillStyle = '#854d0e';
+          ctx.strokeStyle = '#533807';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(-7, 8);
+          ctx.lineTo(-12, 38);
+          ctx.quadraticCurveTo(0, 46, 12, 38);
+          ctx.lineTo(7, 8);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+
+          // Gold silk leaf inlay pattern on bamboo blade
+          ctx.fillStyle = '#fde047';
+          ctx.beginPath();
+          ctx.ellipse(0, 26, 3.5, 10, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Polished Brass Central Housing & Ornament Ring
+        ctx.fillStyle = '#eab308';
+        ctx.strokeStyle = '#a16207';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#ca8a04';
+        ctx.beginPath();
+        ctx.arc(0, 0, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+      } else if (fanTheme === 'porch') {
+        // --- 4. PORCH RUSTIC OUTDOOR PATIO PALM LEAF FAN ---
+        // Warm sunset golden wind aura
+        ctx.fillStyle = 'rgba(251, 146, 60, 0.2)';
+        ctx.beginPath();
+        ctx.arc(0, 0, obs.radius + 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 5 Woven Palm Leaf / Wicker Tropical Blades
+        for (let i = 0; i < 5; i++) {
+          ctx.rotate((Math.PI * 2) / 5);
+
+          // Curved Woven Wicker/Palm Leaf
+          ctx.fillStyle = '#78350f';
+          ctx.strokeStyle = '#451a03';
+          ctx.lineWidth = 1.8;
+          ctx.beginPath();
+          ctx.ellipse(0, 24, 11, 22, -0.1, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+
+          // Palm leaf central vein stem
+          ctx.strokeStyle = '#b45309';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(0, 6);
+          ctx.lineTo(0, 42);
+          ctx.stroke();
+
+          // Dark iron blade attachment bracket
+          ctx.fillStyle = '#1c1917';
+          ctx.fillRect(-4, 6, 8, 8);
+        }
+
+        // Central Glowing Amber Hurricane-Glass Light Bowl
+        ctx.fillStyle = 'rgba(251, 146, 60, 0.35)';
+        ctx.beginPath();
+        ctx.arc(0, 0, 16, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#fef08a';
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Dangling Brass Pull Chain
+        ctx.strokeStyle = '#eab308';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(3, 10);
+        ctx.lineTo(5, 22);
+        ctx.stroke();
+        ctx.fillStyle = '#fde047';
+        ctx.beginPath();
+        ctx.arc(5, 23, 2.5, 0, Math.PI * 2);
         ctx.fill();
       }
-
-      // Center cap
-      ctx.fillStyle = '#0284c7';
-      ctx.beginPath();
-      ctx.arc(0, 0, 8, 0, Math.PI * 2);
-      ctx.fill();
     } else if (obs.type === 'paper_plane') {
       // Paper Airplane
       ctx.fillStyle = '#ffffff';
@@ -2047,7 +2281,8 @@ function drawFanAndWind(
   width: number,
   height: number,
   wind: WindState,
-  fanAngle: number
+  fanAngle: number,
+  theme: EnvironmentTheme = 'kitchen'
 ) {
   // Draw Fan on Wall
   const isLeft = wind.direction >= 0;
@@ -2058,37 +2293,147 @@ function drawFanAndWind(
   ctx.save();
   ctx.translate(fanX, fanY);
 
-  // Fan Stand & Base
-  ctx.fillStyle = '#475569';
-  ctx.fillRect(-6, fanRadius, 12, 35);
-  ctx.fillRect(-18, fanRadius + 30, 36, 10);
+  if (theme === 'kitchen') {
+    // 1. KITCHEN WALL FAN - Sleek White & Chrome Blower
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(-6, fanRadius, 12, 35);
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(-18, fanRadius + 30, 36, 10);
 
-  // Fan Outer Cage
-  ctx.beginPath();
-  ctx.arc(0, 0, fanRadius + 4, 0, Math.PI * 2);
-  ctx.fillStyle = '#334155';
-  ctx.fill();
-  ctx.strokeStyle = '#94a3b8';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-
-  // Spinning Blades
-  ctx.save();
-  ctx.rotate(fanAngle * (wind.direction || 1));
-  ctx.fillStyle = '#cbd5e1';
-  for (let i = 0; i < 4; i++) {
-    ctx.rotate(Math.PI / 2);
     ctx.beginPath();
-    ctx.ellipse(0, 10, 6, 12, 0, 0, Math.PI * 2);
+    ctx.arc(0, 0, fanRadius + 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#f1f5f9';
     ctx.fill();
-  }
-  ctx.restore();
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 3;
+    ctx.stroke();
 
-  // Center Cap
-  ctx.beginPath();
-  ctx.arc(0, 0, 6, 0, Math.PI * 2);
-  ctx.fillStyle = '#e2e8f0';
-  ctx.fill();
+    ctx.save();
+    ctx.rotate(fanAngle * (wind.direction || 1));
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      ctx.rotate((Math.PI * 2) / 3);
+      ctx.beginPath();
+      ctx.ellipse(0, 12, 7, 14, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 7, 0, Math.PI * 2);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fill();
+
+  } else if (theme === 'office') {
+    // 2. OFFICE WALL FAN - Executive Dark Steel & Blue LED
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(-6, fanRadius, 12, 35);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-18, fanRadius + 30, 36, 10);
+
+    ctx.beginPath();
+    ctx.arc(0, 0, fanRadius + 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#1e293b';
+    ctx.fill();
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.save();
+    ctx.rotate(fanAngle * (wind.direction || 1));
+    ctx.fillStyle = '#0284c7';
+    for (let i = 0; i < 4; i++) {
+      ctx.rotate(Math.PI / 2);
+      ctx.beginPath();
+      ctx.ellipse(0, 10, 6, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 6, 0, Math.PI * 2);
+    ctx.fillStyle = '#2563eb';
+    ctx.fill();
+
+  } else if (theme === 'teahouse') {
+    // 3. TEAHOUSE WALL FAN - Bamboo & Gold Silk Tassel Fan
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(-5, fanRadius, 10, 35);
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(-16, fanRadius + 30, 32, 10);
+
+    ctx.beginPath();
+    ctx.arc(0, 0, fanRadius + 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#451a03';
+    ctx.fill();
+    ctx.strokeStyle = '#a16207';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.save();
+    ctx.rotate(fanAngle * (wind.direction || 1));
+    ctx.fillStyle = '#854d0e';
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++) {
+      ctx.rotate(Math.PI / 2);
+      ctx.beginPath();
+      ctx.ellipse(0, 11, 7, 13, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 7, 0, Math.PI * 2);
+    ctx.fillStyle = '#eab308';
+    ctx.fill();
+
+    // Small Tassel
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, fanRadius + 4);
+    ctx.lineTo(0, fanRadius + 18);
+    ctx.stroke();
+
+  } else if (theme === 'porch') {
+    // 4. PORCH WALL FAN - Rustic Bronze & Palm Leaf Wicker Fan
+    ctx.fillStyle = '#92400e';
+    ctx.fillRect(-6, fanRadius, 12, 35);
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(-18, fanRadius + 30, 36, 10);
+
+    ctx.beginPath();
+    ctx.arc(0, 0, fanRadius + 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#78350f';
+    ctx.fill();
+    ctx.strokeStyle = '#b45309';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.save();
+    ctx.rotate(fanAngle * (wind.direction || 1));
+    ctx.fillStyle = '#b45309';
+    for (let i = 0; i < 5; i++) {
+      ctx.rotate((Math.PI * 2) / 5);
+      ctx.beginPath();
+      ctx.ellipse(0, 12, 7, 14, -0.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 8, 0, Math.PI * 2);
+    ctx.fillStyle = '#fef08a';
+    ctx.fill();
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
 
   ctx.restore();
 }

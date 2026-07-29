@@ -427,9 +427,9 @@ export default function App() {
   const selectedMugObj = MUG_TYPES.find((m) => m.id === stats.selectedMug) || MUG_TYPES[0];
 
   return (
-    <div className="w-screen h-screen bg-stone-950 text-white flex flex-col justify-between overflow-hidden select-none font-sans">
+    <div className="w-full h-screen h-[100dvh] max-h-[100dvh] bg-stone-950 text-white flex flex-col justify-between overflow-hidden select-none font-sans">
       {/* Top Main Game Canvas Area */}
-      <div className="relative flex-1 w-full h-full overflow-hidden">
+      <div className="relative flex-1 w-full min-h-0 overflow-hidden">
         {/* Level Up Banner Toast Overlay */}
         {levelUpToast && (
           <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none w-11/12 max-w-md animate-bounce">
@@ -483,7 +483,7 @@ export default function App() {
       </div>
 
       {/* Bottom Game Mode Bar */}
-      <div className="bg-stone-950/90 backdrop-blur-md border-t border-stone-800/80 px-2 py-1.5 sm:px-3 flex items-center justify-center gap-1.5 z-20 overflow-x-auto shrink-0">
+      <div className="bg-stone-950/90 backdrop-blur-md border-t border-stone-800/80 px-2 py-1.5 sm:px-3 flex items-center justify-start sm:justify-center gap-1.5 z-20 overflow-x-auto shrink-0 pb-[calc(0.375rem+env(safe-area-inset-bottom,0px))] w-full touch-pan-x">
         <button
           onClick={() => handleSelectMode('classic')}
           className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition shrink-0 ${
